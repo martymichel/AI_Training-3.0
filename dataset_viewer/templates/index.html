@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dataset Bounding Box Viewer</title>
+    <meta name="description" content="View and analyze datasets with bounding box annotations">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Dataset Bounding Box Viewer</h1>
+        
+        <div class="form-container">
+            <div class="input-group">
+                <input type="text" id="selected-path" placeholder="Enter dataset directory path...">
+                <button onclick="window.loadDataset()" id="load-btn" class="btn-primary">Load Dataset</button>
+            </div>
+            <p class="help-text">Enter the full path to your dataset directory</p>
+        </div>
+
+        <div id="gallery-container"></div>
+    </div>
+
+    <div class="modal" id="imageModal" onclick="hideModal()">
+        <span class="modal-close">&times;</span>
+        <img id="modalImage" src="" alt="Full size image">
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

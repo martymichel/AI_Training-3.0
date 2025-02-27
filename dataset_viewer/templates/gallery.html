@@ -1,0 +1,49 @@
+{% if error %}
+<div class="error">{{ error }}</div>
+{% endif %}
+
+{% if load_time is defined %}
+<div class="load-time">Page load time: {{ load_time }}s</div>
+{% endif %}
+
+{% if stats %}
+<div class="metrics">
+    <div class="metric-card">
+        <div class="metric-value">{{ stats.total_images }}</div>
+        <div class="metric-label">Total Images</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value">{{ stats.total_labels }}</div>
+        <div class="metric-label">Total Labels</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value">{{ stats.background_images }}</div>
+        <div class="metric-label">Background Images</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-value">{{ stats.annotated_images }}</div>
+        <div class="metric-label">Annotated Images</div>
+    </div>
+</div>
+
+<div class="gallery">
+    {% for image in images %}
+    <div class="gallery-item" onclick="window.showModal('{{ image.data }}')">
+        <img src="data:image/jpeg;base64,{{ image.data }}" alt="Dataset image">
+    </div>
+    {% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    <button onclick="window.changePage(-1)" {% if current_page == 1 %}disabled{% endif %}>←</button>
+    <div class="page-info">
+        Page {{ current_page }} of {{ total_pages }}
+    </div>
+    <button onclick="window.changePage(1)" {% if current_page == total_pages %}disabled{% endif %}>→</button>
+</div>
+
+<input type="hidden" id="current-page" value="{{ current_page }}">
+<input type="hidden" id="total-pages" value="{{ total_pages }}">
+{% endif %}
+{% endif %}
