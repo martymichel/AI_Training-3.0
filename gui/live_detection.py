@@ -6,7 +6,8 @@ from ultralytics import YOLO
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QDoubleSpinBox, QComboBox, QMessageBox,
-    QFileDialog, QGroupBox, QSlider, QScrollArea
+    QFileDialog, QGroupBox, QSlider, QScrollArea, QListWidget,
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
 from PyQt6.QtGui import QImage, QPixmap, QFont, QColor
@@ -16,6 +17,66 @@ import json
 from PyQt6.QtWidgets import QDialog
 import logging
 import os
+
+class CameraSelectionDialog(QDialog):
+    """Dialog for selecting a camera device."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Camera")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Camera list
+        self.camera_list = QListWidget()
+        layout.addWidget(self.camera_list)
+        
+        # Populate camera list
+        self.available_cameras = self.find_cameras()
+        for i, (name, _) in enumerate(self.available_cameras):
+            item = QListWidgetItem(f"Camera {i}: {name}")
+            self.camera_list.addItem(item)
+        
+        if not self.available_cameras:
+            self.camera_list.addItem("No cameras found")
+            self.camera_list.setEnabled(False)
+        else:
+            self.camera_list.setCurrentRow(0)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.clicked.connect(self.accept)
+        select_btn.setEnabled(bool(self.available_cameras))
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(select_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+    
+    def find_cameras(self):
+        """Find available camera devices."""
+        available_cameras = []
+        # Try opening each camera index
+        for i in range(10):  # Check first 10 indexes
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Get camera name if possible
+                name = cap.getBackendName()
+                available_cameras.append((name, i))
+                cap.release()
+        return available_cameras
+    
+    def get_selected_camera(self):
+        """Get the selected camera index."""
+        if not self.available_cameras:
+            return None
+        current_row = self.camera_list.currentRow()
+        if current_row >= 0:
+            return self.available_cameras[current_row][1]
+        return None
 
 class ThresholdSettingsDialog(QDialog):
     """Dialog for configuring detection thresholds."""
@@ -559,10 +620,20 @@ class LiveDetectionApp(QMainWindow):
         else:
             # Start detection
             try:
+                # Show camera selection dialog
+                camera_dialog = CameraSelectionDialog(self)
+                if camera_dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                
+                camera_id = camera_dialog.get_selected_camera()
+                if camera_id is None:
+                    QMessageBox.critical(self, "Error", "No camera selected")
+                    return
+                
                 self.detection_thread = DetectionThread(
                     model_path=self.model_path,
                     class_names=self.class_names,
-                    camera_id=0
+                    camera_id=camera_id
                 )
                 
                 # Update parameters
@@ -612,7 +683,8 @@ class LiveDetectionApp(QMainWindow):
                     for class_id, count in counts.items():
                         status_parts.append(f"{self.class_names[class_id]}: {count}")
                     status_parts.extend([
-                        f"Motion: {results[1]:.2f}"
+                        f"Motion: {results[1]:.2f}",
+                        f"Static: {self.detection_thread.in_static_period}"
                     ])
                     status = " | ".join(status_parts)
                     self.status_label.setText(status)
