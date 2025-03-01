@@ -8,10 +8,10 @@ class TrainingDefaults:
     """Default values for training parameters."""
     epochs: int = 100
     image_size: int = 640
-    batch_size: int = 16
+    batch_size: int = 32
     learning_rate: float = 0.01
     optimizer: str = "AdamW"
-    augmentation: bool = True
+    augmentation: bool = False
     project_dir: str = "yolo_training_results"
     experiment_name: str = "experiment"
 
