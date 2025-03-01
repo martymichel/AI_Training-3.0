@@ -1,0 +1,7 @@
+names:
+  0: Bostitch
+  1: Tesa
+  2: Edding
+path: C:/Users/Michel/Pictures/USB Cam/Labeled Augmented Splitted
+train: C:/Users/Michel/Pictures/USB Cam/Labeled Augmented Splitted\train.txt
+val: C:/Users/Michel/Pictures/USB Cam/Labeled Augmented Splitted\val.txt
