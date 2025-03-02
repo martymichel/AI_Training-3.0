@@ -115,7 +115,7 @@ class ImageScene(QGraphicsScene):
         self.drawing = False
         self.start = QPointF()
         self.temp_rect = None
-        self.min_size = 50  # Mindestgröße in Pixeln
+        self.min_size = 20  # Mindestgröße in Pixeln
         self.current_color = QColor("black")
         self.current_class = 0
 

@@ -1,103 +1,77 @@
-"""YOLO training module with threading support."""
+"""Optimized YOLO training module."""
 
-from ultralytics import YOLO
-from threading import Thread
+import torch
 import os
-import pandas as pd
-import time
+import sys
+import gc
+from ultralytics import YOLO
+import traceback
 import logging
-from config import Config
+# Disable debug logging for training
+logging.getLogger().setLevel(logging.WARNING)
 
-# Logger konfigurieren
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+from rich.console import Console
 
-def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, augment, project, name, progress_callback=None, log_callback=None):
-    """Start YOLO training in a separate thread with progress monitoring.
+# Rich Console for colored output
+console = Console()
+
+# Get CPU core count
+workers_found = os.cpu_count()
+
+def optimize_memory():
+    """Optimize memory before training."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr, close_mosaic,
+                   momentum, warmup_epochs, warmup_momentum, box, dropout, project, name,
+                   progress_callback=None, log_callback=None):
+    """Start YOLO training with GPU support."""
+    try:
+        optimize_memory()
+
+        # CUDA configuration
+        device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        console.log(f"[bold green]Using device:[/bold green] {device}")
+        
+        # Initialize model
+        model = YOLO("yolo11n.pt")
+        
+        # Start training
+        model.train(
+            resume=resume,
+            data=data_path,
+            epochs=epochs,
+            imgsz=imgsz,
+            batch=batch,
+            lr0=lr0,
+            optimizer="AdamW",  # Fixed default
+            device=device,
+            project=project,
+            name=name,
+            workers=min(8, workers_found-2),  # Limit workers
+            exist_ok=True,
+            plots=True,  # Fixed default
+            multi_scale=multi_scale,
+            cos_lr=cos_lr,
+            close_mosaic=close_mosaic,
+            momentum=momentum,
+            warmup_epochs=warmup_epochs,
+            warmup_momentum=warmup_momentum,
+            box=box,
+            dropout=dropout,
+            seed=42  # Fixed seed for reproducibility
+        )
+        
+        if progress_callback:
+            progress_callback(100)
     
-    Args:
-        data_path (str): Path to YAML dataset file
-        epochs (int): Number of training epochs
-        imgsz (int): Input image size
-        batch (int): Batch size
-        lr0 (float): Initial learning rate
-        optimizer (str): Optimizer name (AdamW, Adam, SGD)
-        augment (bool): Use data augmentation
-        project (str): Project directory
-        name (str): Experiment name
-        progress_callback (callable): Callback function to update progress
-        log_callback (callable): Callback function to log messages
-    """
-    def train():
-        try:
-            logger.info("Starte Training mit folgenden Parametern:")
-            logger.info(f"Epochs: {epochs}, Image Size: {imgsz}, Batch: {batch}")
-            logger.info(f"Learning Rate: {lr0}, Optimizer: {optimizer}")
-            
-            model = YOLO("yolo11n.pt")
-
-            # YOLO Training starten
-            model.train(
-                data=data_path,
-                epochs=epochs,
-                imgsz=imgsz,
-                batch=batch,
-                lr0=lr0,
-                workers=os.cpu_count()-1,  # Dynamisch verfügbare Worker ermitteln
-                optimizer=optimizer,
-                augment=augment,
-                device=0,  # Nutze GPU 0
-                project=project,
-                name=name
-            )
-
-            logger.info("Training erfolgreich abgeschlossen")
-            if progress_callback:
-                progress_callback(100)
-
-        except Exception as e:
-            logger.error(f"Fehler während des Trainings: {str(e)}")
-            if progress_callback:
-                progress_callback(0, str(e))
-
-    def monitor_progress():
-        """Monitor training progress by reading results.csv."""
-        csv_path = os.path.join(project, name, "results.csv")
-
-        while not os.path.exists(csv_path):
-            logger.debug("Warte auf results.csv...")
-            time.sleep(5)
-
-        while True:
-            try:
-                df = pd.read_csv(csv_path)
-                df.columns = df.columns.str.strip()
-
-                current_epoch = len(df)
-                progress = (current_epoch / epochs) * 100
-                logger.debug(f"Trainingsfortschritt: {progress:.1f}%")
-
-                if progress_callback:
-                    progress_callback(progress)
-
-                if progress >= 100:
-                    logger.info("Monitoring beendet - Training abgeschlossen")
-                    break
-
-                time.sleep(10)
-
-            except Exception as e:
-                logger.error(f"Fehler beim Fortschritt-Tracking: {str(e)}")
-                time.sleep(10)
-
-    # Training in eigenem Thread starten
-    training_thread = Thread(target=train)
-    training_thread.start()
-
-    # Fortschrittsüberwachung in eigenem Thread starten
-    monitor_thread = Thread(target=monitor_progress)
-    monitor_thread.start()
+    except torch.cuda.OutOfMemoryError:
+        error_msg = "GPU memory exhausted! Reduce batch size or image size."
+        if progress_callback:
+            progress_callback(0, error_msg)
+    except Exception:
+        error_msg = f"Training error:\n{traceback.format_exc()}"
+        if progress_callback:
+            progress_callback(0, error_msg)

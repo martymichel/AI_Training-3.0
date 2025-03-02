@@ -1,7 +1,7 @@
 """Main menu window for launching different applications."""
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -13,6 +13,7 @@ from gui.dataset_splitter import DatasetSplitterApp
 from gui.image_labeling import ImageLabelingApp
 from gui.camera_app import CameraApp
 from gui.live_detection import LiveDetectionApp
+from gui.gui_dashboard import DashboardWindow
 class MainMenu(QMainWindow):
     """Main menu window providing access to different applications."""
     
@@ -103,7 +104,19 @@ class MainMenu(QMainWindow):
         self.yolo_button.setMinimumHeight(60)
         self.yolo_button.clicked.connect(self.open_yolo_trainer)
         self.yolo_button.setFont(button_font)
-        layout.addWidget(self.yolo_button)
+        
+        # Create horizontal layout for YOLO and Dashboard buttons
+        yolo_layout = QHBoxLayout()
+        yolo_layout.addWidget(self.yolo_button)
+        
+        # Training Dashboard Button
+        self.dashboard_button = QPushButton("Training-Dashboard")
+        self.dashboard_button.setMinimumHeight(60)
+        self.dashboard_button.clicked.connect(self.open_dashboard)
+        self.dashboard_button.setFont(button_font)
+        yolo_layout.addWidget(self.dashboard_button)
+        
+        layout.addLayout(yolo_layout)
 
         # Modell-Verifikation Button
         self.verification_button = QPushButton("7. Modell-Verifikation / Annotation mit Test-Dataset")
@@ -181,3 +194,10 @@ class MainMenu(QMainWindow):
             self.windows['detection'] = LiveDetectionApp()
         self.windows['detection'].show()
         self.windows['detection'].activateWindow()        
+
+    def open_dashboard(self):
+        """Open the training dashboard window."""
+        if 'dashboard' not in self.windows:
+            self.windows['dashboard'] = DashboardWindow()
+        self.windows['dashboard'].show()
+        self.windows['dashboard'].activateWindow()

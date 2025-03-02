@@ -1,15 +1,15 @@
 {
     "motion_threshold": 50,
     "static_frame_min": 10,
-    "iou_threshold": 0.22,
+    "iou_threshold": 0.53,
     "class_thresholds": {
-        "0": 0.45,
-        "1": 0.6,
-        "2": 0.67
+        "0": 0.37,
+        "1": 0.37,
+        "2": 0.37
     },
     "frame_assignments": {
-        "0": "Green Frame",
-        "1": "Green Frame",
+        "0": "None",
+        "1": "None",
         "2": "Red Frame"
     },
     "green_threshold": 1,

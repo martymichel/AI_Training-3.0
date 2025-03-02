@@ -1,21 +1,26 @@
+"""Dashboard module for YOLO training visualization."""
+
 import os
 import time
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import logging
+from PyQt6.QtWidgets import (
+    QMainWindow, QVBoxLayout, QWidget, QLabel, QMessageBox, QHBoxLayout,
+    QPushButton, QFileDialog
+)
+from PyQt6.QtCore import QTimer, QThread, pyqtSignal
+# Disable matplotlib font debug messages
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+logging.getLogger('PIL.PngImagePlugin').setLevel(logging.ERROR)
 
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.ticker import MaxNLocator
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QLabel, QMessageBox
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
-# Logger konfigurieren
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+# Disable all matplotlib logging
+plt.set_loglevel('critical')
 
 
 class DashboardWorker(QThread):
@@ -31,7 +36,7 @@ class DashboardWorker(QThread):
         self.experiment = experiment
         self.update_interval = update_interval  # in Sekunden
         self.running = True
-        self.last_mod_time = None
+        self.last_mod_time = 0
 
     def find_results_csv(self):
         """Sucht im Projekt/Experiment-Verzeichnis nach 'results.csv'."""
@@ -46,12 +51,11 @@ class DashboardWorker(QThread):
             try:
                 csv_path = self.find_results_csv()
                 if not csv_path:
-                    logger.debug("results.csv noch nicht gefunden. Warte...")
                     time.sleep(self.update_interval)
                     continue
 
                 current_mod_time = os.path.getmtime(csv_path)
-                if self.last_mod_time is not None and current_mod_time == self.last_mod_time:
+                if current_mod_time == self.last_mod_time:
                     time.sleep(self.update_interval)
                     continue
                 self.last_mod_time = current_mod_time
@@ -60,21 +64,21 @@ class DashboardWorker(QThread):
                 df.columns = df.columns.str.strip()
 
                 if len(df) < 1:
-                    logger.debug("Noch zu wenige Epochen... Warte auf erste Ergebnisse.")
                     time.sleep(self.update_interval)
                     continue
 
-                logger.info("results.csv erfolgreich geladen.")
                 self.update_signal.emit(df)
                 time.sleep(self.update_interval)
             except Exception as e:
-                logger.error(f"Fehler beim Dashboard-Update: {e}")
                 time.sleep(self.update_interval)
 
     def stop(self):
         self.running = False
         self.quit()
-        self.wait()
+        self.wait(1000)  # Wait up to 1 second
+
+    def __del__(self):
+        self.stop()
 
 
 class DashboardWindow(QMainWindow):
@@ -88,52 +92,145 @@ class DashboardWindow(QMainWindow):
     """
     def __init__(self, project="yolo_training_results", experiment="experiment", total_epochs=100):
         super().__init__()
-        self.project = project
-        self.experiment = experiment
+        self.project = None
+        self.experiment = None
+        self.dashboard_worker = None
         self.total_epochs = total_epochs
         self.setWindowTitle("YOLO Trainings-Dashboard")
         self.setGeometry(200, 200, 1400, 800)
-
-        # Infos zu den Metriken
-        self.metric_info_dict = {
-            "Box Loss": "Box Loss (Train & Val) – Darstellung der Verlustwerte für Boxen. Niedrigere Werte sind besser.",
-            "Class Loss": "Class Loss (Train & Val) – Verlustwerte für die Klassifizierung. Niedrigere Werte sind besser.",
-            "Precision & Recall": "Precision & Recall – Metriken zur Bewertung der Vorhersagegenauigkeit. Höhere Werte sind besser.",
-            "mAP Scores": "mAP Scores – Mittlere Average Precision (mAP50 und mAP50-95) zur Beurteilung der Erkennungsleistung.",
-            "DFL Loss": "DFL Loss (Train & Val) – Distribution Focal Loss als Ersatz für F1-Score. Niedrigere Werte sind besser.",
-            "Learning Rate": "Learning Rate – Aktuelle Lernrate des Modells, zeigt, wie stark die Gewichte aktualisiert werden."
-        }
-
-        # Zentrales Widget und Layout
-        central_widget = QWidget()
-        layout = QVBoxLayout(central_widget)
-        self.setCentralWidget(central_widget)
-
-        self.info_label = QLabel("Trainingsstart wird abgewartet...")
-        layout.addWidget(self.info_label)
-
+        
+        # Set up matplotlib
         try:
             if "seaborn-whitegrid" in plt.style.available:
                 plt.style.use("seaborn-whitegrid")
             else:
                 plt.style.use("seaborn-darkgrid")
-        except Exception as e:
-            logger.error(f"Fehler beim Setzen des Styles: {e}")
+        except Exception:
             plt.style.use("default")
 
+        # Create figure and canvas
         self.figure, self.axes = plt.subplots(3, 2, figsize=(16, 12))
         self.canvas = FigureCanvas(self.figure)
-        layout.addWidget(self.canvas)
-
+        
         # Liste für Info-Anmerkungen (Info-Icons)
         self.info_annotations = []
 
-        # Mit dem Pick-Event werden Klicks auf die Info-Icons erkannt.
+        # Infos zu den Metriken
+        self.metric_info_dict = {
+            "Box Loss": """Box Loss (Train & Val) – Diese Kennzahl misst, wie gut das Modell die Position der erkannten Objekte innerhalb eines Bildes bestimmt.
+            Ein niedriger Wert bedeutet, dass die vorhergesagten Begrenzungsrahmen (Bounding Boxes) nah an den tatsächlichen Positionen liegen.
+            
+            Bewertung:
+            - Sehr gut: < 0.05 – Das Modell lokalisiert Objekte extrem genau.
+            - Gut: 0.05 - 0.1 – Geringe Abweichungen bei der Objektlokalisierung.
+            - Akzeptabel: 0.1 - 0.3 – Leichte Ungenauigkeiten, kann aber noch funktionieren.
+            - Schlecht: > 0.3 – Die Boxen weichen zu stark von den realen Positionen ab und könnten Fehler verursachen.""",
+
+            "Class Loss": """Class Loss (Train & Val) – Diese Metrik bewertet, wie gut das Modell zwischen verschiedenen Fehlerklassen (z. B. Gratbildung, Risse) unterscheiden kann.
+            Ein niedriger Wert bedeutet, dass das Modell die Klassen zuverlässig erkennt.
+            
+            Bewertung:
+            - Sehr gut: < 0.02 – Fast perfekte Klassifikation.
+            - Gut: 0.02 - 0.05 – Hohe Genauigkeit, aber leichte Fehler möglich.
+            - Akzeptabel: 0.05 - 0.15 – Einige falsche Klassifikationen, Modell ist verbesserungsfähig.
+            - Schlecht: > 0.15 – Häufige Verwechslungen zwischen Fehlerarten, führt zu hoher Falschklassifikationsrate.""",
+
+            "Precision & Recall": """Precision & Recall – Diese beiden Werte zeigen an, wie gut das Modell Fehler erkennt, ohne zu viele falsche Alarme zu erzeugen.
+            
+            - **Precision (Präzision)**: Gibt an, wie viele der als fehlerhaft erkannten Teile tatsächlich fehlerhaft sind. Hohe Präzision bedeutet wenige Falsch-Positive (Teile werden fälschlicherweise als fehlerhaft erkannt).
+            - **Recall (Empfindlichkeit)**: Zeigt, wie viele der real fehlerhaften Teile auch tatsächlich als fehlerhaft erkannt wurden. Ein hoher Wert bedeutet, dass das Modell kaum Fehler übersieht.
+            
+            Bewertung:
+            - Sehr gut: Precision & Recall > 95% – Fast perfekte Erkennung.
+            - Gut: 90 - 95% – Kaum Fehler übersehen, wenige Falsch-Positive.
+            - Akzeptabel: 80 - 90% – Funktioniert gut, aber kann vereinzelt Fehler übersehen oder Fehlalarme erzeugen.
+            - Schlecht: < 80% – Hohe Rate an übersehenen Fehlern oder falschen Alarmen, nicht für die Produktion geeignet.""",
+
+            "mAP Scores": """mAP Scores – Diese Kennzahl gibt an, wie gut das Modell Fehler in verschiedenen Bereichen des Bildes erkennt. Sie wird als Durchschnitt aller Vorhersagegenauigkeiten über verschiedene Schwellenwerte berechnet.
+            
+            - **mAP50** (Mittlere Average Precision bei 50% Übereinstimmung): Gibt an, wie gut das Modell Fehler findet, wenn es eine 50%ige Übereinstimmung mit der tatsächlichen Fehlerposition gibt.
+            - **mAP50-95** (Mittlere Average Precision über verschiedene Schwellenwerte von 50% bis 95%): Bewertet, wie gut das Modell unter strengen Genauigkeitsanforderungen arbeitet.
+            
+            Bewertung:
+            - Sehr gut: mAP50 > 95% und mAP50-95 > 80% – Sehr zuverlässige Fehlererkennung.
+            - Gut: mAP50 90 - 95% und mAP50-95 70 - 80% – Funktioniert gut, leichte Verbesserungen möglich.
+            - Akzeptabel: mAP50 80 - 90% und mAP50-95 60 - 70% – Gute Grundgenauigkeit, aber feinere Optimierung erforderlich.
+            - Schlecht: mAP50 < 80% oder mAP50-95 < 60% – Hohe Fehlerrate, nicht praxistauglich.""",
+
+            "DFL Loss": """DFL Loss (Train & Val) – Distribution Focal Loss bewertet die Unsicherheit des Modells bei der Positionsvorhersage von Fehlern.
+            Ein hoher Wert zeigt, dass das Modell sich nicht sicher ist, wo genau sich der Fehler befindet.
+            
+            Bewertung:
+            - Sehr gut: < 0.03 – Hohe Sicherheit bei der Fehlerlokalisierung.
+            - Gut: 0.03 - 0.08 – Leichte Unsicherheiten, aber akzeptabel.
+            - Akzeptabel: 0.08 - 0.15 – Erkennbar unsicher, könnte Fehlerpositionen ungenau bestimmen.
+            - Schlecht: > 0.15 – Modell ist unsicher, Fehlerlokalisierung unzuverlässig.""",
+
+            "Learning Rate": """Learning Rate – Dieser Wert zeigt, wie stark das Modell seine Parameter bei jedem Trainingsschritt anpasst.
+            Eine zu hohe Lernrate führt dazu, dass das Modell nicht stabil lernt, eine zu niedrige Lernrate führt zu langsamen oder unvollständigem Lernen.
+            
+            Bewertung:
+            - Sehr gut: 0.001 - 0.005 – Optimale Lernrate für stabile Anpassung.
+            - Gut: 0.005 - 0.01 – Etwas aggressiver, aber meist stabil.
+            - Akzeptabel: 0.01 - 0.02 – Risiko für instabiles Training, aber kann in manchen Fällen funktionieren.
+            - Schlecht: > 0.02 oder < 0.0005 – Entweder zu schnell (instabiles Lernen) oder zu langsam (sehr langes Training)."""
+        }
+
+
+        # Zentrales Widget und Layout
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
+        layout.setSpacing(10)
+        self.setCentralWidget(central_widget)
+
+        # Project selection
+        select_layout = QHBoxLayout()
+        self.project_label = QLabel("Kein Projekt ausgewählt")
+        select_btn = QPushButton("Projekt auswählen...")
+        select_btn.clicked.connect(self.select_project)
+        select_layout.addWidget(self.project_label)
+        select_layout.addWidget(select_btn)
+        layout.addLayout(select_layout)
+
+        # Add canvas to layout
+        layout.addWidget(self.canvas)
+
+        # Status label at the bottom
+        self.info_label = QLabel("Bitte wählen Sie ein Projekt aus")
+        layout.addWidget(self.info_label)
+
+        # Connect canvas pick event
         self.canvas.mpl_connect("pick_event", self._on_info_pick)
 
-        self.dashboard_worker = DashboardWorker(self.project, self.experiment)
-        self.dashboard_worker.update_signal.connect(self.update_dashboard)
-        self.dashboard_worker.start()
+    def select_project(self):
+        """Open file dialog to select project directory."""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Projektverzeichnis wählen"
+        )
+        if directory:
+            # Look for results.csv in the directory
+            for root, dirs, files in os.walk(directory):
+                if "results.csv" in files:
+                    self.project = os.path.dirname(root)  # Parent of the directory containing results.csv
+                    self.experiment = os.path.basename(root)  # Directory containing results.csv
+                    self.project_label.setText(f"Projekt: {os.path.basename(self.project)}/{self.experiment}")
+                    
+                    # Start monitoring
+                    if self.dashboard_worker:
+                        self.dashboard_worker.stop()
+                    self.dashboard_worker = DashboardWorker(self.project, self.experiment)
+                    self.dashboard_worker.update_signal.connect(self.update_dashboard)
+                    self.dashboard_worker.start()
+                    
+                    self.info_label.setText("Überwache Training...")
+                    return
+                    
+            QMessageBox.warning(
+                self,
+                "Keine Trainingsdaten gefunden",
+                "Keine results.csv im ausgewählten Verzeichnis gefunden."
+            )
+
 
     def update_dashboard(self, df):
         if not self.isVisible():
@@ -142,9 +239,7 @@ class DashboardWindow(QMainWindow):
 
     def _safe_update(self, df):
         try:
-            self.info_label.setText("")
             if "epoch" not in df.columns:
-                logger.error("Spalte 'epoch' fehlt in der CSV.")
                 return
 
             epochs = df["epoch"]
@@ -295,7 +390,7 @@ class DashboardWindow(QMainWindow):
             self.canvas.flush_events()
 
         except Exception as e:
-            logger.error(f"Fehler beim Aktualisieren der Dashboard-UI: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to update dashboard: {str(e)}")
 
     def _on_info_pick(self, event):
         artist = event.artist
@@ -305,5 +400,8 @@ class DashboardWindow(QMainWindow):
             QMessageBox.information(self, f"Information zu {metric}", info_text)
 
     def closeEvent(self, event):
+        if self.dashboard_worker:
+            self.dashboard_worker.stop()
+            self.dashboard_worker = None
         self.hide()
         event.ignore()

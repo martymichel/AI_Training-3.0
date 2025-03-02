@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 from config import Config
 from utils.validation import validate_yaml, check_gpu
-from yolo.yolo_train import start_training_threaded
-from gui.gui_dashboard import DashboardWindow
+from yolo.yolo_train import start_training
 
 class TrainSettingsWindow(QWidget):
     def __init__(self):
@@ -60,7 +59,7 @@ class TrainSettingsWindow(QWidget):
         # Training parameters with tooltips
         self.epochs_label = QLabel("Anzahl Epochen:")
         self.epochs_input = QSpinBox()
-        self.epochs_input.setRange(1, 1000)
+        self.epochs_input.setRange(5, 300)
         self.epochs_input.setValue(Config.training.epochs)
         self.epochs_input.setToolTip("Anzahl der Trainingsdurchläufe")
         layout.addWidget(self.epochs_label)
@@ -68,51 +67,96 @@ class TrainSettingsWindow(QWidget):
 
         self.imgsz_label = QLabel("Bildgrösse:")
         self.imgsz_input = QSpinBox()
-        self.imgsz_input.setRange(32, 2048)
+        self.imgsz_input.setRange(640, 1280)
         self.imgsz_input.setValue(Config.training.image_size)
         self.imgsz_input.setToolTip("Größe der Trainingsbilder in Pixeln")
         layout.addWidget(self.imgsz_label)
         layout.addWidget(self.imgsz_input)
 
-        self.batch_label = QLabel("Batch-Grösse:")
-        self.batch_input = QSpinBox()
-        self.batch_input.setRange(1, 128)
-        self.batch_input.setValue(Config.training.batch_size)
-        self.batch_input.setToolTip("Anzahl der Bilder pro Trainingsschritt")
+        self.batch_label = QLabel("Batch:")
+        self.batch_input = QDoubleSpinBox()
+        self.batch_input.setRange(0.7, 0.99)
+        self.batch_input.setDecimals(2)
+        self.batch_input.setValue(Config.training.batch)
+        self.batch_input.setToolTip("Batch-Größe als Anteil des verfügbaren Speichers")
         layout.addWidget(self.batch_label)
         layout.addWidget(self.batch_input)
 
         self.lr_label = QLabel("Anfangs-Lernrate (lr0):")
         self.lr_input = QDoubleSpinBox()
-        self.lr_input.setRange(0.0001, 1.0)
+        self.lr_input.setRange(0.001, 0.01)
         self.lr_input.setDecimals(4)
-        self.lr_input.setValue(Config.training.learning_rate)
+        self.lr_input.setValue(Config.training.lr0)
         self.lr_input.setToolTip("Initiale Lernrate für den Optimizer")
         layout.addWidget(self.lr_label)
         layout.addWidget(self.lr_input)
 
-        self.optimizer_label = QLabel("Optimizer:")
-        self.optimizer_input = QComboBox()
-        self.optimizer_input.addItems(["AdamW", "Adam", "SGD"])
-        self.optimizer_input.setCurrentText(Config.training.optimizer)
-        self.optimizer_input.setToolTip("Optimierungsalgorithmus für das Training")
-        layout.addWidget(self.optimizer_label)
-        layout.addWidget(self.optimizer_input)
+        # New parameters
+        self.resume_input = QCheckBox("Training fortsetzen")
+        self.resume_input.setChecked(Config.training.resume)
+        self.resume_input.setToolTip("Training vom letzten Checkpoint fortsetzen")
+        layout.addWidget(self.resume_input)
 
-        self.augment_label = QLabel("Daten-Augmentierung:")
-        self.augment_input = QCheckBox("Aktivieren")
-        self.augment_input.setChecked(Config.training.augmentation)
-        self.augment_input.setToolTip("Automatische Datenerweiterung durch Transformationen")
-        layout.addWidget(self.augment_label)
-        layout.addWidget(self.augment_input)
+        self.multi_scale_input = QCheckBox("Multi-Scale Training")
+        self.multi_scale_input.setChecked(Config.training.multi_scale)
+        self.multi_scale_input.setToolTip("Training mit verschiedenen Bildgrößen")
+        layout.addWidget(self.multi_scale_input)
 
-        # Training log display
-        self.log_display = QTextEdit()
-        self.log_display.setReadOnly(True)
-        self.log_display.setStyleSheet("""
-            QTextEdit { background-color: #f5f5f5; font-family: monospace; }
-        """)
-        layout.addWidget(self.log_display)
+        self.cos_lr_input = QCheckBox("Cosine Learning Rate")
+        self.cos_lr_input.setChecked(Config.training.cos_lr)
+        self.cos_lr_input.setToolTip("Cosinus-basierte Lernratenanpassung")
+        layout.addWidget(self.cos_lr_input)
+
+        self.close_mosaic_label = QLabel("Close Mosaic Epochs:")
+        self.close_mosaic_input = QSpinBox()
+        self.close_mosaic_input.setRange(0, 15)
+        self.close_mosaic_input.setValue(Config.training.close_mosaic)
+        self.close_mosaic_input.setToolTip("Epochen bis Mosaic Augmentation beendet wird")
+        layout.addWidget(self.close_mosaic_label)
+        layout.addWidget(self.close_mosaic_input)
+
+        self.momentum_label = QLabel("Momentum:")
+        self.momentum_input = QDoubleSpinBox()
+        self.momentum_input.setRange(0.9, 0.95)
+        self.momentum_input.setDecimals(2)
+        self.momentum_input.setValue(Config.training.momentum)
+        self.momentum_input.setToolTip("SGD Momentum/Adam Beta1")
+        layout.addWidget(self.momentum_label)
+        layout.addWidget(self.momentum_input)
+
+        self.warmup_epochs_label = QLabel("Warmup Epochs:")
+        self.warmup_epochs_input = QSpinBox()
+        self.warmup_epochs_input.setRange(2, 5)
+        self.warmup_epochs_input.setValue(Config.training.warmup_epochs)
+        self.warmup_epochs_input.setToolTip("Anzahl der Warmup-Epochen")
+        layout.addWidget(self.warmup_epochs_label)
+        layout.addWidget(self.warmup_epochs_input)
+
+        self.warmup_momentum_label = QLabel("Warmup Momentum:")
+        self.warmup_momentum_input = QDoubleSpinBox()
+        self.warmup_momentum_input.setRange(0.8, 0.9)
+        self.warmup_momentum_input.setDecimals(2)
+        self.warmup_momentum_input.setValue(Config.training.warmup_momentum)
+        self.warmup_momentum_input.setToolTip("Momentum während Warmup")
+        layout.addWidget(self.warmup_momentum_label)
+        layout.addWidget(self.warmup_momentum_input)
+
+        self.box_label = QLabel("Box Loss Gain:")
+        self.box_input = QSpinBox()
+        self.box_input.setRange(7, 8)
+        self.box_input.setValue(Config.training.box)
+        self.box_input.setToolTip("Box Loss Gewichtung")
+        layout.addWidget(self.box_label)
+        layout.addWidget(self.box_input)
+
+        self.dropout_label = QLabel("Dropout:")
+        self.dropout_input = QDoubleSpinBox()
+        self.dropout_input.setRange(0, 0.1)
+        self.dropout_input.setDecimals(2)
+        self.dropout_input.setValue(Config.training.dropout)
+        self.dropout_input.setToolTip("Dropout Regularisierung")
+        layout.addWidget(self.dropout_label)
+        layout.addWidget(self.dropout_input)
 
         # Training starten
         self.start_button = QPushButton("Training starten")
@@ -123,19 +167,7 @@ class TrainSettingsWindow(QWidget):
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
-        # Dashboard Button (deaktiviert)
-        self.dashboard_button = QPushButton("Dashboard anzeigen...")
-        self.dashboard_button.setEnabled(False)
-        self.dashboard_button.clicked.connect(self.open_dashboard)
-        layout.addWidget(self.dashboard_button)
-
         self.setLayout(layout)
-
-        # Hintergrundprüfung auf results.csv
-        self.check_timer = QTimer()
-        self.check_timer.setInterval(Config.ui.update_interval)
-        self.check_timer.timeout.connect(self.check_results_csv)
-        self.check_timer.start()
 
     def browse_project(self):
         """Open file dialog to select project directory."""
@@ -153,13 +185,6 @@ class TrainSettingsWindow(QWidget):
         )
         if file_path:
             self.data_input.setText(file_path)
-
-    def log_message(self, message):
-        """Add message to log display."""
-        self.log_display.append(message)
-        # Auto-scroll to bottom
-        scrollbar = self.log_display.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
 
     def start_training(self):
         """Validate inputs and start the training process."""
@@ -191,46 +216,39 @@ class TrainSettingsWindow(QWidget):
         data_path = self.data_input.text()
         epochs = self.epochs_input.value()
         imgsz = self.imgsz_input.value()
-        batch = self.batch_input.value()
+        batch = float(self.batch_input.value())
         lr0 = self.lr_input.value()
-        optimizer = self.optimizer_input.currentText()
-        augment = self.augment_input.isChecked()
+        resume = self.resume_input.isChecked()
+        multi_scale = self.multi_scale_input.isChecked()
+        cos_lr = self.cos_lr_input.isChecked()
+        close_mosaic = self.close_mosaic_input.value()
+        momentum = self.momentum_input.value()
+        warmup_epochs = self.warmup_epochs_input.value()
+        warmup_momentum = self.warmup_momentum_input.value()
+        box = self.box_input.value()
+        dropout = self.dropout_input.value()
 
         # Get project settings
         self.project = self.project_input.text() or Config.training.project_dir
         self.experiment = self.name_input.text() or Config.training.experiment_name
 
-        # Clear log display
-        self.log_display.clear()
-        self.log_message("Training wird gestartet...")
-
         self.progress_bar.setValue(0)
         self.start_button.setEnabled(False)
         self.training_active = True
-
-        start_training_threaded(
-            data_path, epochs, imgsz, batch, lr0, optimizer, augment,
-            self.project, self.experiment,
-            progress_callback=self.update_progress,
-            log_callback=self.log_message
-        )
-
-    def check_results_csv(self):
-        """Check if results.csv exists and enable dashboard button."""
-        base_path = os.path.join(self.project, self.experiment)
-        for root, dirs, files in os.walk(base_path):
-            if "results.csv" in files:
-                self.dashboard_button.setEnabled(True)
-                return
-
-    def open_dashboard(self):
-        """Open the training dashboard window."""
-        self.dashboard = DashboardWindow(
-            self.project,
-            self.experiment,
-            total_epochs=self.epochs_input.value()
-        )
-        self.dashboard.show()
+        
+        try:
+            start_training(
+                data_path, epochs, imgsz, batch, lr0, resume, multi_scale,
+                cos_lr, close_mosaic, momentum, warmup_epochs, warmup_momentum,
+                box, dropout,
+                self.project, self.experiment,
+                progress_callback=self.update_progress,
+                log_callback=None
+            )
+        except Exception as e:
+            self.update_progress(0, str(e))
+            self.training_active = False
+            self.start_button.setEnabled(True)
 
     def update_progress(self, progress, error_message=""):
         """Update the progress bar and handle training completion/errors."""
@@ -239,7 +257,8 @@ class TrainSettingsWindow(QWidget):
                 self.start_button.setEnabled(True)
                 self.progress_bar.setValue(100)
                 self.training_active = False
-                QMessageBox.information(self, "Training", "Training erfolgreich abgeschlossen!")
+                if not error_message:  # Only show success if no error
+                    QMessageBox.information(self, "Training", "Training erfolgreich abgeschlossen!")
             elif progress == 0 and error_message:
                 self.start_button.setEnabled(True)
                 self.progress_bar.setValue(0)
@@ -249,3 +268,9 @@ class TrainSettingsWindow(QWidget):
                 self.progress_bar.setValue(int(progress))
         except Exception as e:
             print(f"Fehler beim Update des Fortschritts: {e}")
+            self.training_active = False
+            self.start_button.setEnabled(True)
+
+    def closeEvent(self, event):
+        """Handle window close event."""
+        event.accept()
