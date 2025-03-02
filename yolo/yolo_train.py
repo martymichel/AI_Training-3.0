@@ -16,7 +16,7 @@ formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, augment, project, name, callback=None):
+def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, augment, project, name, progress_callback=None, log_callback=None):
     """Start YOLO training in a separate thread with progress monitoring.
     
     Args:
@@ -29,7 +29,8 @@ def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, aug
         augment (bool): Use data augmentation
         project (str): Project directory
         name (str): Experiment name
-        callback (callable): Progress callback function
+        progress_callback (callable): Callback function to update progress
+        log_callback (callable): Callback function to log messages
     """
     def train():
         try:
@@ -55,13 +56,13 @@ def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, aug
             )
 
             logger.info("Training erfolgreich abgeschlossen")
-            if callback:
-                callback(100)
+            if progress_callback:
+                progress_callback(100)
 
         except Exception as e:
             logger.error(f"Fehler während des Trainings: {str(e)}")
-            if callback:
-                callback(0, str(e))
+            if progress_callback:
+                progress_callback(0, str(e))
 
     def monitor_progress():
         """Monitor training progress by reading results.csv."""
@@ -80,8 +81,8 @@ def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, aug
                 progress = (current_epoch / epochs) * 100
                 logger.debug(f"Trainingsfortschritt: {progress:.1f}%")
 
-                if callback:
-                    callback(progress)
+                if progress_callback:
+                    progress_callback(progress)
 
                 if progress >= 100:
                     logger.info("Monitoring beendet - Training abgeschlossen")

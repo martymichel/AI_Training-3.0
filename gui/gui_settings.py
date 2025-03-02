@@ -3,7 +3,8 @@
 import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFileDialog,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox, QMessageBox, QProgressBar
+    QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox, QMessageBox, QProgressBar,
+    QHBoxLayout, QTextEdit
 )
 from PyQt6.QtCore import QTimer
 from config import Config
@@ -14,6 +15,7 @@ from gui.gui_dashboard import DashboardWindow
 class TrainSettingsWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.training_active = False
         self.setWindowTitle("YOLO Training Settings")
         self.setGeometry(150, 150, Config.ui.window_width, Config.ui.window_height)
 
@@ -27,9 +29,15 @@ class TrainSettingsWindow(QWidget):
         self.project_label = QLabel("Objekt/Artikel (Projektverzeichnis):")
         self.project_input = QLineEdit()
         self.project_input.setPlaceholderText("Beispiel: yolo_training_results")
+        self.project_input.setText(Config.training.project_dir)
         self.project_input.setToolTip("Verzeichnis für die Trainingsergebnisse")
+        self.project_browse = QPushButton("Durchsuchen")
+        self.project_browse.clicked.connect(self.browse_project)
         layout.addWidget(self.project_label)
-        layout.addWidget(self.project_input)
+        project_layout = QHBoxLayout()
+        project_layout.addWidget(self.project_input)
+        project_layout.addWidget(self.project_browse)
+        layout.addLayout(project_layout)
 
         # Experiment name with tooltip
         self.name_label = QLabel("Trainingsbezeichnung:")
@@ -98,6 +106,14 @@ class TrainSettingsWindow(QWidget):
         layout.addWidget(self.augment_label)
         layout.addWidget(self.augment_input)
 
+        # Training log display
+        self.log_display = QTextEdit()
+        self.log_display.setReadOnly(True)
+        self.log_display.setStyleSheet("""
+            QTextEdit { background-color: #f5f5f5; font-family: monospace; }
+        """)
+        layout.addWidget(self.log_display)
+
         # Training starten
         self.start_button = QPushButton("Training starten")
         self.start_button.clicked.connect(self.start_training)
@@ -121,6 +137,15 @@ class TrainSettingsWindow(QWidget):
         self.check_timer.timeout.connect(self.check_results_csv)
         self.check_timer.start()
 
+    def browse_project(self):
+        """Open file dialog to select project directory."""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Projektverzeichnis wählen", 
+            self.project_input.text()
+        )
+        if directory:
+            self.project_input.setText(directory)
+
     def browse_data(self):
         """Open file dialog to select YAML dataset file."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -129,8 +154,20 @@ class TrainSettingsWindow(QWidget):
         if file_path:
             self.data_input.setText(file_path)
 
+    def log_message(self, message):
+        """Add message to log display."""
+        self.log_display.append(message)
+        # Auto-scroll to bottom
+        scrollbar = self.log_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
     def start_training(self):
         """Validate inputs and start the training process."""
+        if self.training_active:
+            QMessageBox.warning(self, "Training aktiv", 
+                              "Ein Training läuft bereits.")
+            return
+
         # Validate YAML file
         data_path = self.data_input.text()
         is_valid, error_message = validate_yaml(data_path)
@@ -145,9 +182,9 @@ class TrainSettingsWindow(QWidget):
             response = QMessageBox.warning(
                 self, "GPU-Warnung",
                 f"{gpu_message}\nMöchten Sie trotzdem fortfahren?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if response == QMessageBox.No:
+            if response == QMessageBox.StandardButton.No:
                 return
 
         # Get training parameters
@@ -163,13 +200,19 @@ class TrainSettingsWindow(QWidget):
         self.project = self.project_input.text() or Config.training.project_dir
         self.experiment = self.name_input.text() or Config.training.experiment_name
 
+        # Clear log display
+        self.log_display.clear()
+        self.log_message("Training wird gestartet...")
+
         self.progress_bar.setValue(0)
         self.start_button.setEnabled(False)
+        self.training_active = True
 
         start_training_threaded(
             data_path, epochs, imgsz, batch, lr0, optimizer, augment,
             self.project, self.experiment,
-            callback=self.update_progress
+            progress_callback=self.update_progress,
+            log_callback=self.log_message
         )
 
     def check_results_csv(self):
@@ -195,10 +238,12 @@ class TrainSettingsWindow(QWidget):
             if progress >= 100:
                 self.start_button.setEnabled(True)
                 self.progress_bar.setValue(100)
+                self.training_active = False
                 QMessageBox.information(self, "Training", "Training erfolgreich abgeschlossen!")
             elif progress == 0 and error_message:
                 self.start_button.setEnabled(True)
                 self.progress_bar.setValue(0)
+                self.training_active = False
                 QMessageBox.critical(self, "Fehler", f"Training fehlgeschlagen:\n{error_message}")
             else:
                 self.progress_bar.setValue(int(progress))

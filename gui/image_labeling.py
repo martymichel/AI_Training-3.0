@@ -3,83 +3,107 @@ import sys, os, shutil
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QFileDialog, QListWidget, QListWidgetItem, QMessageBox, QInputDialog
+    QFileDialog, QListWidget, QListWidgetItem, QMessageBox, QInputDialog,
+    QScrollArea
 )
 from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer
 import utils.labeling_utils as utils
 
 # -------------------------------
 # Resizable Bounding Box Item
 # -------------------------------
 class ResizableRectItem(QGraphicsRectItem):
-    def __init__(self, rect, class_id, color, *args, **kwargs):
-        super().__init__(rect, *args, **kwargs)
+    def __init__(self, rect, class_id, parent=None):
+        super().__init__(rect, parent)
+        self.scene_ref = None  # Reference to scene for updating annotations
         self.class_id = class_id
-        self.handleSize = 8.0
-        self.handles = {}
-        self.resizing = False
-        self.currentHandle = None
-        self.color = color
-        self.setPen(QPen(self.color, 2))
+        self.handles = []
+        self.handle_size = QSizeF(10.0, 10.0)
         self.setFlags(
             QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable |
-            QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable
+            QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable |
+            QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
-        self.updateHandlesPos()
+        self.updateHandles()
 
-    def updateHandlesPos(self):
-        r = self.rect()
-        self.handles = {
-            "tl": QRectF(r.topLeft().x() - self.handleSize/2, r.topLeft().y() - self.handleSize/2, self.handleSize, self.handleSize),
-            "tr": QRectF(r.topRight().x() - self.handleSize/2, r.topRight().y() - self.handleSize/2, self.handleSize, self.handleSize),
-            "bl": QRectF(r.bottomLeft().x() - self.handleSize/2, r.bottomLeft().y() - self.handleSize/2, self.handleSize, self.handleSize),
-            "br": QRectF(r.bottomRight().x() - self.handleSize/2, r.bottomRight().y() - self.handleSize/2, self.handleSize, self.handleSize),
-        }
+    def updateHandles(self):
+        """Update the resize handles."""
+        self.handles.clear()
+        rect = self.rect()
+        self.handles = [
+            rect.topLeft(),
+            rect.topRight(),
+            rect.bottomLeft(),
+            rect.bottomRight()
+        ]
 
     def paint(self, painter, option, widget):
-        # Zeichne die Box
+        """Paint the rectangle and its handles."""
         super().paint(painter, option, widget)
-        # Zeichne die Handles, wenn selektiert
+        
+        # Draw resize handles
         if self.isSelected():
-            painter.setBrush(QBrush(Qt.GlobalColor.white))
-            for rect in self.handles.values():
-                painter.drawRect(rect)
+            painter.setBrush(QBrush(QColor(255, 255, 255)))
+            painter.setPen(QPen(QColor(0, 0, 0), 1))
+            for handle in self.handles:
+                painter.drawRect(QRectF(
+                    handle.x() - self.handle_size.width() / 2,
+                    handle.y() - self.handle_size.height() / 2,
+                    self.handle_size.width(),
+                    self.handle_size.height()
+                ))
 
     def mousePressEvent(self, event):
-        # Prüfe, ob auf einen Handle geklickt wurde.
-        for handle, rect in self.handles.items():
-            if rect.contains(event.pos()):
-                self.resizing = True
-                self.currentHandle = handle
-                event.accept()
-                return
+        """Handle mouse press events for resizing."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.pos()
+            # Check if we clicked on a handle
+            for i, handle in enumerate(self.handles):
+                if (pos - handle).manhattanLength() < 10:
+                    self.setSelected(True)
+                    self.resize_handle = i
+                    return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.resizing:
+        """Handle mouse move events for resizing."""
+        if hasattr(self, 'resize_handle'):
             pos = event.pos()
-            r = self.rect()
-            if self.currentHandle == "tl":
-                newRect = QRectF(pos, r.bottomRight()).normalized()
-            elif self.currentHandle == "tr":
-                newRect = QRectF(QPointF(r.left(), pos.y()), QPointF(pos.x(), r.bottom())).normalized()
-            elif self.currentHandle == "bl":
-                newRect = QRectF(QPointF(pos.x(), r.top()), QPointF(r.right(), pos.y())).normalized()
-            elif self.currentHandle == "br":
-                newRect = QRectF(r.topLeft(), pos).normalized()
-            minSize = 10
-            if newRect.width() < minSize or newRect.height() < minSize:
-                return
-            self.setRect(newRect)
-            self.updateHandlesPos()
-        else:
-            super().mouseMoveEvent(event)
+            rect = self.rect()
+            if self.resize_handle == 0:  # Top-left
+                rect.setTopLeft(pos)
+            elif self.resize_handle == 1:  # Top-right
+                rect.setTopRight(pos)
+            elif self.resize_handle == 2:  # Bottom-left
+                rect.setBottomLeft(pos)
+            elif self.resize_handle == 3:  # Bottom-right
+                rect.setBottomRight(pos)
+            self.setRect(rect.normalized())
+            self.updateHandles()
+            return
+        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self.resizing = False
-        self.currentHandle = None
+        """Handle mouse release events."""
+        if hasattr(self, 'resize_handle'):
+            # Store position after resize
+            del self.resize_handle
+            self.store_position()
         super().mouseReleaseEvent(event)
+
+    def store_position(self):
+        """Store the current position and dimensions."""
+        if hasattr(self, 'scene_ref') and self.scene_ref and isinstance(self.scene_ref, ImageScene):
+            QTimer.singleShot(0, self.scene_ref.store_item_changes)
+
+    def itemChange(self, change, value):
+        """Handle item changes to prevent trailing effect."""
+        if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
+            # Store position after move
+            self.scene().update()  # Force scene update to prevent trailing
+            self.store_position()
+        return super().itemChange(change, value)
 
 # -------------------------------
 # Scene zur Annotation
@@ -87,6 +111,7 @@ class ResizableRectItem(QGraphicsRectItem):
 class ImageScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_window = None  # Reference to main window for storing annotations
         self.drawing = False
         self.start = QPointF()
         self.temp_rect = None
@@ -113,15 +138,30 @@ class ImageScene(QGraphicsScene):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.drawing:
             self.drawing = False
-            rect = self.temp_rect.rect()
-            if rect.width() < self.min_size or rect.height() < self.min_size:
+            final_rect = self.temp_rect.rect()
+            if final_rect.width() < self.min_size or final_rect.height() < self.min_size:
                 self.removeItem(self.temp_rect)
             else:
+                # Create resizable rect item with proper parameters
                 self.removeItem(self.temp_rect)
-                final_rect = ResizableRectItem(rect, self.current_class, self.current_color)
-                self.addItem(final_rect)
+                rect_item = ResizableRectItem(final_rect, self.current_class, None)
+                pen = QPen(self.current_color, 2)
+                rect_item.setPen(pen)
+                rect_item.scene_ref = self  # Set scene reference
+                self.addItem(rect_item)
+                self.store_item_changes()  # Store initial box position
             self.temp_rect = None
         super().mouseReleaseEvent(event)
+
+    def store_item_changes(self):
+        """Store current annotations when boxes change."""
+        if self.main_window:
+            # Use QTimer to avoid multiple rapid saves
+            if not hasattr(self, '_save_timer'):
+                self._save_timer = QTimer()
+                self._save_timer.setSingleShot(True)
+                self._save_timer.timeout.connect(self.main_window.store_annotations)
+            self._save_timer.start(100)  # Wait 100ms before saving
 
 # -------------------------------
 # Hauptapplikation
@@ -130,6 +170,7 @@ class ImageLabelingApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Bounding Box Annotation Tool")
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         self.source_dir = ""
         self.dest_dir = ""
         self.image_files = []
@@ -151,16 +192,97 @@ class ImageLabelingApp(QMainWindow):
         # Hauptlayout und zentraler Widget
         main_widget = QWidget()
         main_layout = QHBoxLayout()
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_widget.setLayout(main_layout)
         self.setCentralWidget(main_widget)
 
-        # QGraphicsView mit eigener Scene zur Bild- und Boxanzeige
+        # QGraphicsView setup
         self.scene = ImageScene()
+        self.scene.main_window = self  # Set main window reference
         self.view = QGraphicsView(self.scene)
+        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         main_layout.addWidget(self.view, stretch=4)
 
-        # Seitenleiste für Bedienungselemente
-        side_layout = QVBoxLayout()
+        # Sidebar setup
+        sidebar_container = QWidget()
+        sidebar_layout = QHBoxLayout(sidebar_container)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+        sidebar_container.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-left: 1px solid #ddd;
+            }
+        """)
+
+        # Scrollbare Seitenleiste
+        self.sidebar_widget = QWidget()
+        self.sidebar_widget.setFixedWidth(300)
+        self.sidebar_widget.setStyleSheet("""
+            QWidget {
+                background-color: #f5f5f5;
+                border: none;
+            }
+            QPushButton {
+                background-color: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 8px;
+                color: #333;
+            }
+            QPushButton:hover {
+                background-color: #f0f0f0;
+                border-color: #ccc;
+            }
+            QLabel {
+                color: #333;
+                padding: 4px;
+            }
+            QListWidget {
+                background-color: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                margin: 2px;
+                border-radius: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: rgba(0, 0, 0, 0.1);
+            }
+        """)
+        scroll = QScrollArea()
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: #f5f5f5;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f5f5f5;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #c1c1c1;
+                min-height: 30px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #a8a8a8;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        scroll.setWidget(self.sidebar_widget)
+        scroll.setWidgetResizable(True)
+        sidebar_layout.addWidget(scroll)
+
+        side_layout = QVBoxLayout(self.sidebar_widget)
 
         # Verzeichniswahl und Anzeige
         btn_load_source = QPushButton("Quellverzeichnis wählen")
@@ -219,23 +341,44 @@ class ImageLabelingApp(QMainWindow):
         btn_info.clicked.connect(self.show_info)
         side_layout.addWidget(btn_info)
 
-        btn_generate = QPushButton("Dataset generieren")
-        btn_generate.clicked.connect(self.generate_dataset)
-        side_layout.addWidget(btn_generate)
+        # Dataset Generation Button
+        self.generate_button = QPushButton("Dataset generieren")
+        self.generate_button.setMinimumHeight(60)
+        self.generate_button.setFont(QFont("", 14, QFont.Weight.Bold))
+        self.generate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border-radius: 10px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        self.generate_button.clicked.connect(self.generate_dataset)
+        side_layout.addWidget(self.generate_button)
 
+        # Add stretch at the bottom
         side_layout.addStretch()
-        main_layout.addLayout(side_layout, stretch=1)
+        
+        main_layout.addWidget(sidebar_container)
 
     def update_class_list(self):
         """Aktualisiert die Anzeige der Klassenliste mit doppelter, fetter Schrift und farbigem Hintergrund."""
         self.class_list.clear()
-        font = QFont()
-        font.setPointSize(16)
-        font.setBold(True)
+        font = QFont("Arial", 12, QFont.Weight.Bold)
         for idx, (name, color) in enumerate(self.classes):
             item = QListWidgetItem(name)
             item.setFont(font)
-            item.setBackground(QBrush(color))
+            # Create a semi-transparent version of the color for better readability
+            bg_color = QColor(color)
+            bg_color.setAlpha(40)  # 40% opacity
+            item.setBackground(QBrush(bg_color))
+            item.setForeground(QBrush(color.darker(150)))  # Darker text color
             self.class_list.addItem(item)
 
     def choose_source_dir(self):
@@ -283,7 +426,10 @@ class ImageLabelingApp(QMainWindow):
                 else:
                     color = QColor("black")
                 rect = QRectF(x_min, y_min, x_max - x_min, y_max - y_min)
-                box = ResizableRectItem(rect, class_id, color)
+                box = ResizableRectItem(rect, class_id)
+                box.scene_ref = self.scene  # Set scene reference
+                pen = QPen(color, 2)
+                box.setPen(pen)
                 self.scene.addItem(box)
         # Aktive Klasse in der Scene aktualisieren
         current_row = self.class_list.currentRow()
@@ -427,5 +573,5 @@ class ImageLabelingApp(QMainWindow):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = ImageLabelingApp()
-    window.showFullScreen()  # Start im Vollbildmodus (Windows)
+    window.show()  # Window will be maximized due to WindowState setting
     sys.exit(app.exec())
