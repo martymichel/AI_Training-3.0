@@ -33,3 +33,27 @@ if __name__ == "__main__":
     get_system_info()
     get_cuda_info()
     get_package_versions()
+
+#### PC Output ####
+"""
+PS P:\PY\AI_Training 2.0> uv run check_versions.py
+=== System Information ===
+Python version: 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 15:23:48) [MSC v.1942 64 bit (AMD64)]
+Platform: Windows-11-10.0.26100-SP0
+CPU cores: 16
+RAM: 63.9 GB
+
+=== CUDA Information ===
+CUDA available: True
+CUDA version: 12.6
+GPU device: NVIDIA GeForce RTX 3070 Ti
+GPU memory: 8.0 GB
+cuDNN version: 90501
+cuDNN enabled: True
+
+=== Package Versions ===
+torch: 2.6.0+cu126
+torchvision: 0.21.0+cu126
+ultralytics: 8.3.78
+"""
+
