@@ -9,7 +9,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer
 from config import Config
 from utils.validation import validate_yaml, check_gpu
+import logging
 from yolo.yolo_train import start_training
+
+# Configure logging
+logger = logging.getLogger("training_gui")
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(ch)
 
 class TrainSettingsWindow(QWidget):
     def __init__(self):
@@ -267,7 +275,7 @@ class TrainSettingsWindow(QWidget):
             else:
                 self.progress_bar.setValue(int(progress))
         except Exception as e:
-            print(f"Fehler beim Update des Fortschritts: {e}")
+            logger.error(f"Error updating progress: {e}")
             self.training_active = False
             self.start_button.setEnabled(True)
 

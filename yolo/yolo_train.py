@@ -7,13 +7,17 @@ import gc
 from ultralytics import YOLO
 import traceback
 import logging
-# Disable debug logging for training
-logging.getLogger().setLevel(logging.WARNING)
 
-from rich.console import Console
+# Configure logging
+logger = logging.getLogger("yolo_training")
+logger.setLevel(logging.INFO)
 
-# Rich Console for colored output
-console = Console()
+# Console handler with formatting
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 # Get CPU core count
 workers_found = os.cpu_count()
@@ -33,7 +37,7 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
 
         # CUDA configuration
         device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        console.log(f"[bold green]Using device:[/bold green] {device}")
+        logger.info(f"Using device: {device}")
         
         # Initialize model
         model = YOLO("yolo11n.pt")
@@ -69,9 +73,11 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
     
     except torch.cuda.OutOfMemoryError:
         error_msg = "GPU memory exhausted! Reduce batch size or image size."
+        logger.error(error_msg)
         if progress_callback:
             progress_callback(0, error_msg)
     except Exception:
         error_msg = f"Training error:\n{traceback.format_exc()}"
+        logger.error(error_msg)
         if progress_callback:
             progress_callback(0, error_msg)
