@@ -22,6 +22,7 @@ from datetime import datetime
 import logging
 from collections import Counter
 import torch
+from PyQt6.QtGui import QImage, QPixmap
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QLabel, QFileDialog,
@@ -31,7 +32,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QImage, QPixmap, QFont
 
 # Globaler Logger konfigurieren (Ausgabe auf Konsole; später wird FileHandler hinzugefügt)
-logger = logging.getLogger("LiveAnnotation")
+logger = logging.getLogger("Test-Annotation & KI-Modell Verifikation")
 logger.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
@@ -55,72 +56,182 @@ class OptimizeThresholdsWorker(QThread):
     def run(self):
         try:
             model = YOLO(self.model_path)
-            self.model = model  # Store model as instance variable
+            self.model = model
+
+            # Ordner erstellen ...
+            model_dir = os.path.dirname(os.path.abspath(self.model_path))
+            parent_dir = os.path.dirname(model_dir)
+            self.plot_dir = os.path.join(parent_dir, "optimization_plots")
+            os.makedirs(self.plot_dir, exist_ok=True)
+
             best_result = {
-                'conf': 0.25,  # Default values
+                'conf': 0.25,
                 'iou': 0.45,
                 'accuracy': 0.0
             }
-            
-            # Stage 1: Coarse search with 20% steps
-            self.stage_updated.emit("Stage 1: Coarse search")
+
+            # --- Stage 1: Grobsuche ---
+            self.stage_updated.emit("Stufe 1: Grobes Tuning (spart Zeit)")
             coarse_step = 20
-            coarse_best = self.search_grid(
+            coarse_best, coarse_history = self.search_grid(
                 conf_range=(1, 100),
                 iou_range=(1, 100),
                 step=coarse_step,
                 progress_weight=0.3,
-                model=model
+                base_progress=0,
+                model=model,
+                stage_label="Grob"
             )
-            
-            # Stage 2: Medium search around best coarse result
-            self.stage_updated.emit("Stage 2: Medium search")
+
+            # --- Stage 2: Mittelsuche ---
+            self.stage_updated.emit("Stufe 2: 10%-Schritte (grenzt den Optimalbereich ein)")
             conf_best = coarse_best['conf'] * 100
-            iou_best = coarse_best['iou'] * 100
+            iou_best  = coarse_best['iou']  * 100
             medium_step = 10
-            
-            # Define search ranges around best coarse result
+
+            # Range definieren um das 'coarse_best'
             conf_min = max(1, conf_best - coarse_step)
             conf_max = min(100, conf_best + coarse_step)
-            iou_min = max(1, iou_best - coarse_step)
-            iou_max = min(100, iou_best + coarse_step)
-            
-            medium_best = self.search_grid(
-                conf_range=(conf_min, conf_max),
+            iou_min  = max(1, iou_best  - coarse_step)
+            iou_max  = min(100, iou_best + coarse_step)
+
+            medium_best, medium_history = self.search_grid(
+                conf_range=(conf_min, conf_max),   # <-- Korrigiert (kein (1,100) mehr)
                 iou_range=(iou_min, iou_max),
                 step=medium_step,
                 progress_weight=0.3,
-                base_progress=30,
-                model=model
+                base_progress=43,
+                model=model,
+                stage_label="Mittel"
             )
-            
-            # Stage 3: Fine search with user-defined step size
-            self.stage_updated.emit("Stage 3: Fine search")
+
+            # --- Stage 3: Feinsuche ---
+            self.stage_updated.emit("Stufe 3: Fein-Tuning, um den Optimalbereich präzise zu bestimmen")
             conf_best = medium_best['conf'] * 100
-            iou_best = medium_best['iou'] * 100
-            
-            # Define final search ranges
+            iou_best  = medium_best['iou']  * 100
+
+            # Range definieren um das 'medium_best'
             conf_min = max(1, conf_best - medium_step)
             conf_max = min(100, conf_best + medium_step)
-            iou_min = max(1, iou_best - medium_step)
-            iou_max = min(100, iou_best + medium_step)
-            
-            best_result = self.search_grid(
+            iou_min  = max(1, iou_best  - medium_step)
+            iou_max  = min(100, iou_best + medium_step)
+
+            best_result, fine_history = self.search_grid(
                 conf_range=(conf_min, conf_max),
                 iou_range=(iou_min, iou_max),
                 step=self.step_size,
                 progress_weight=0.4,
-                base_progress=60,
-                model=model
+                base_progress=73,
+                model=model,
+                stage_label="Fein"
             )
-            
+
+            # Zusammenführen aller Punkte
+            all_history = coarse_history + medium_history + fine_history            
+
+            progress = 98
+            self.progress_updated.emit(progress)
+            self.stage_updated.emit("Stufe 4: Tuning-Plots werden erstellt")        
+
+            # Plot 1: Conf-Werte
+            heatmap_path  = os.path.join(self.plot_dir, "accuracy_heatmap.png")
+            self.plot_accuracy_heatmap(all_history, heatmap_path)
+            progress = 99
+            self.progress_updated.emit(progress)
+
+            # Plot 2: IoU-Werte
+            surface_path  = os.path.join(self.plot_dir, "accuracy_surface.png")
+            self.plot_accuracy_surface(all_history, surface_path)
+            progress = 100
+            self.progress_updated.emit(progress)                                    
+                
             self.optimization_finished.emit(best_result)
             
         except Exception as e:
             logger.error(f"Error during threshold optimization: {e}")
             self.optimization_finished.emit({})
 
-    def search_grid(self, conf_range, iou_range, step, progress_weight=1.0, base_progress=0, model=None):
+    def plot_accuracy_heatmap(self, history, outpath):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        
+        confs = [x[0]*100 for x in history]
+        ious  = [x[1]*100 for x in history]
+        accs  = [x[2]      for x in history]  # Annahme: 0..100
+
+        unique_confs = sorted(list(set(confs)))
+        unique_ious  = sorted(list(set(ious)))
+        heatmap = np.zeros((len(unique_ious), len(unique_confs)), dtype=float)
+        
+        for c, i, a in zip(confs, ious, accs):
+            c_idx = unique_confs.index(c)
+            i_idx = unique_ious.index(i)
+            heatmap[i_idx, c_idx] = a
+        
+        plt.figure(figsize=(8, 6))
+        # NEU: cmap="RdYlGn", vmin=0, vmax=100
+        plt.imshow(
+            heatmap, 
+            origin='lower',
+            aspect='auto',
+            cmap='RdYlGn',
+            vmin=0, vmax=100,  # rot=0, grün=100
+            extent=[min(unique_confs), max(unique_confs),
+                    min(unique_ious),  max(unique_ious)]
+        )
+        plt.colorbar(label='Accuracy (%)')
+        plt.xlabel("Confidence (%)")
+        plt.ylabel("IoU (%)")
+        plt.title("Accuracy-Heatmap in Abhängigkeit von Conf & IoU")
+        plt.tight_layout()
+        plt.savefig(outpath, dpi=150)
+        plt.close()
+
+
+    def plot_accuracy_surface(self, history, outpath):
+        """
+        3D Surface: X=Confidence, Y=IoU, Z=Accuracy.
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from mpl_toolkits.mplot3d import Axes3D  # wichtig, nicht entfernen
+
+        confs = [x[0]*100 for x in history]  # in %
+        ious  = [x[1]*100 for x in history]
+        accs  = [x[2]      for x in history]
+
+        # Gleiche Idee wie bei der Heatmap: Wir brauchen ein 2D-Gitter
+        unique_confs = sorted(list(set(confs)))
+        unique_ious  = sorted(list(set(ious)))
+        z_matrix = np.zeros((len(unique_ious), len(unique_confs)), dtype=float)
+
+        for c, i, a in zip(confs, ious, accs):
+            c_idx = unique_confs.index(c)
+            i_idx = unique_ious.index(i)
+            z_matrix[i_idx, c_idx] = a
+        
+        # 2D-Mesh erstellen:
+        X, Y = np.meshgrid(unique_confs, unique_ious)
+        Z = z_matrix
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection='3d')
+        surf = ax.plot_surface(
+            X, Y, Z,
+            cmap='viridis',
+            edgecolor='none',
+            alpha=0.9
+        )
+        fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Accuracy (%)')
+        ax.set_xlabel("Confidence (%)")
+        ax.set_ylabel("IoU (%)")
+        ax.set_zlabel("Accuracy (%)")
+        ax.set_title("3D-Surface: Accuracy in Abhängigkeit von Conf & IoU")
+        plt.tight_layout()
+        plt.savefig(outpath, dpi=150)
+        plt.close()
+
+    def search_grid(self, conf_range, iou_range, step, progress_weight=1.0, base_progress=0, model=None, stage_label=""):
         """Search for optimal thresholds in a given range with specified step size."""
         if model is None:
             raise ValueError("Model must be provided")
@@ -151,14 +262,17 @@ class OptimizeThresholdsWorker(QThread):
         conf_range = np.clip(np.arange(start_conf, end_conf + step/2, step), 1, 100)
         iou_range = np.clip(np.arange(start_iou, end_iou + step/2, step), 1, 100)
         
+        search_history = []
+        total_images = len(self.image_list)
+
         for conf in conf_range:
             for iou in iou_range:
+                good_count = 0  # NEU: pro (conf,iou) reset
+                total_images = len(self.image_list)
+
                 # Ensure thresholds are within valid ranges
                 conf_threshold = np.clip(conf / 100.0, 0.01, 0.99)
                 iou_threshold = np.clip(iou / 100.0, 0.01, 0.99)
-                
-                good_count = 0
-                total_images = len(self.image_list)
                 
                 # Process images in batches
                 for i in range(0, total_images, batch_size):
@@ -198,26 +312,38 @@ class OptimizeThresholdsWorker(QThread):
                 
                 # Calculate accuracy
                 accuracy = (good_count / total_images) * 100
+
+                # In search_history ablegen
+                search_history.append((
+                    float(conf_threshold),
+                    float(iou_threshold),
+                    float(accuracy),
+                    stage_label
+                ))
+
+                # best_result updaten & Early Stopping
                 if accuracy > best_result['accuracy']:
                     best_result = {
                             'conf': conf_threshold,
                             'iou': iou_threshold,
                             'accuracy': accuracy
                         }
-                
+                                              
                 current_combination += 1
                 progress = base_progress + int((current_combination / total_combinations) * 100 * progress_weight)
                 self.progress_updated.emit(progress)
                 
-                # Early stopping if we find very good results
-                if best_result['accuracy'] >= 98:
-                    return best_result
+                # Early Stopping jetzt bei >= 99%
+                if best_result['accuracy'] >= 99:
+                    # Fortschritt updaten und sofort zurück
+                    self.progress_updated.emit(progress)
+                    return best_result, search_history
                 
                 # Check if we should continue
                 if self.isInterruptionRequested():
-                    return best_result
+                    return best_result, search_history
         
-        return best_result
+        return best_result, search_history
 
 class AnnotationWorker(QThread):
     mosaic_updated = pyqtSignal(QPixmap)
@@ -237,12 +363,6 @@ class AnnotationWorker(QThread):
         self.current_mosaic_index = -1
 
     def run(self):
-        # Im Worker-Thread werden alle nötigen Module importiert
-        import cv2, numpy as np, os
-        from ultralytics import YOLO
-        from PyQt6.QtGui import QImage, QPixmap
-        from collections import Counter
-
         # Lade das YOLO-Modell (Originalauflösung)
         model = YOLO(self.model_path)
         total_images = len(self.image_list)
@@ -457,7 +577,7 @@ class LiveAnnotationApp(QWidget):
         
         # Threshold-Schieberegler
         threshold_layout = QHBoxLayout()
-        sidebar_layout.addWidget(QLabel("Threshold:"))
+        sidebar_layout.addWidget(QLabel("Schwellenwert:"))
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setRange(0, 100)
         self.threshold_slider.setValue(25)  # Standard = 0.25
@@ -499,13 +619,13 @@ class LiveAnnotationApp(QWidget):
                 border-radius: 4px;
             }
         """)
-        self.step_size_spin.setValue(5)
+        self.step_size_spin.setValue(1)
         self.step_size_spin.setSuffix("%")
         step_layout.addWidget(self.step_size_spin)
         optimize_layout.addLayout(step_layout)
         
         # Optimize button
-        self.optimize_button = QPushButton("Optimize Thresholds")
+        self.optimize_button = QPushButton("1. Optimalwerte suchen")
         self.optimize_button.setMinimumHeight(40)
         self.optimize_button.setFont(QFont("", 11))
         self.optimize_button.setStyleSheet("""
@@ -529,7 +649,7 @@ class LiveAnnotationApp(QWidget):
         sidebar_layout.addWidget(optimize_group)
         
         # Start-Button
-        self.start_button = QPushButton("Bilder-Annotation starten")
+        self.start_button = QPushButton("2. Bilder-Annotation starten")
         self.start_button.setMinimumHeight(60)
         self.start_button.setFont(QFont("", 12, QFont.Weight.Bold))
         self.start_button.setStyleSheet("""
@@ -557,8 +677,20 @@ class LiveAnnotationApp(QWidget):
         # Schwarze schrift für den Fortschrittsbalken
         self.progress_bar.setStyleSheet("""
             QProgressBar {
+                /* allgemein */
                 text-align: center;
+                font-size: 18px;      /* Grösser */
+                font-weight: bold;    /* Fett */
+                min-height: 30px;     /* Erhöht die Mindesthöhe, so wird er „dicker“ */
                 color: black;
+                /* Du kannst hier auch 'border: 1px solid #999;' angeben oder Hintergrundfarbe etc. */
+            }
+            QProgressBar::chunk {
+                background-color: #2196F3; /* Blau gefüllter Teil */
+                width: 1px;               /* Default: schmal, 
+                                            wird dynamisch abhängig vom Wert */
+                margin: 0.5px;            /* Kleiner Abstand pro chunk, 
+                                            kann man anpassen */
             }
         """)
         
@@ -573,6 +705,11 @@ class LiveAnnotationApp(QWidget):
         nav_layout = QHBoxLayout()
         self.prev_mosaic_btn = QPushButton("← Vorheriges Mosaik")
         self.next_mosaic_btn = QPushButton("Nächstes Mosaik →")
+
+        # Anfangs: verbergen
+        self.prev_mosaic_btn.hide()
+        self.next_mosaic_btn.hide()
+
         self.prev_mosaic_btn.setEnabled(False)
         self.next_mosaic_btn.setEnabled(False)
         self.prev_mosaic_btn.clicked.connect(self.show_previous_mosaic)
@@ -624,6 +761,7 @@ class LiveAnnotationApp(QWidget):
         self.summary_output = QPlainTextEdit()
         self.summary_output.setReadOnly(True)
         self.summary_output.hide()
+        self.summary_output.setStyleSheet("font-size: 16px;") # Grössere Schrift
         content_layout.addWidget(self.summary_output)
         
         # Add main content and sidebar to main layout
@@ -633,6 +771,17 @@ class LiveAnnotationApp(QWidget):
         self.worker = None
         self.image_list = []
         self.optimize_worker = None
+
+        self.open_plot_dir_button = QPushButton("Bilder des Tunings")
+        self.open_plot_dir_button.setEnabled(False)
+        self.open_plot_dir_button.clicked.connect(self.open_optimization_plot_dir)
+        sidebar_layout.addWidget(self.open_plot_dir_button)
+
+    def open_optimization_plot_dir(self):
+        if self.optimize_worker and hasattr(self.optimize_worker, "plot_dir"):
+            plot_dir = self.optimize_worker.plot_dir
+            if os.path.isdir(plot_dir):
+                os.startfile(plot_dir) if os.name == 'nt' else os.system(f'xdg-open "{plot_dir}"')
 
     def update_threshold_label(self, value):
         threshold = value / 100.0
@@ -647,12 +796,12 @@ class LiveAnnotationApp(QWidget):
         os.startfile(dir_path) if os.name == 'nt' else os.system(f'xdg-open "{dir_path}"')
 
     def browse_model(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Modell auswählen", "", "PT Dateien (*.pt)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "KI-Modell (.pt) auswählen", "", "PT Dateien (*.pt)")
         if file_path:
             self.model_line_edit.setText(file_path)
 
     def browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Testordner auswählen")
+        folder = QFileDialog.getExistingDirectory(self, "Test-Dataset auswählen")
         if folder:
             self.folder_line_edit.setText(folder)
 
@@ -662,11 +811,11 @@ class LiveAnnotationApp(QWidget):
         test_folder = self.folder_line_edit.text().strip()
         
         if not os.path.exists(model_path):
-            QMessageBox.warning(self, "Error", "Please select a valid model file")
+            QMessageBox.warning(self, "Error", "Bitte wählen Sie eine gültige Modell-Datei aus")
             return
             
         if not os.path.isdir(test_folder):
-            QMessageBox.warning(self, "Error", "Please select a valid test folder")
+            QMessageBox.warning(self, "Error", "Bitte wählen Sie ein gültiges Testverzeichnis aus")
             return
 
         # Collect all images in test folder
@@ -675,7 +824,7 @@ class LiveAnnotationApp(QWidget):
             self.image_list.extend(glob.glob(os.path.join(test_folder, ext)))
         self.image_list.sort()
         if not self.image_list:
-            QMessageBox.warning(self, "Error", "No images found in test folder")
+            QMessageBox.warning(self, "Error", "Keine Bilder im Testverzeichnis gefunden")
             return
         
         # Disable UI during optimization
@@ -695,7 +844,7 @@ class LiveAnnotationApp(QWidget):
         self.optimize_worker.start()
         
         # Update status
-        self.summary_output.setPlainText("Starting optimization...")
+        self.summary_output.setPlainText("Starting Tuning...")
         self.summary_output.show()
 
     def optimization_complete(self, results):
@@ -704,33 +853,42 @@ class LiveAnnotationApp(QWidget):
         self.start_button.setEnabled(True)
         
         if not results:
-            QMessageBox.warning(self, "Error", "Threshold optimization failed")
+            QMessageBox.warning(self, "Error", "Schwellenwert Tuning fehlgeschlagen")
             return
+
+        # Button aktivieren
+        self.open_plot_dir_button.setEnabled(True)    
         
-        # Update threshold sliders with optimal values
+        # Zusammenbauen einer kurzen Summary mit Link
         conf_value = int(results['conf'] * 100)
         iou_value = int(results['iou'] * 100)
+
+        # Sliderpositionen updaten
         self.threshold_slider.setValue(conf_value)
         self.iou_slider.setValue(iou_value)
-        
-        # Show optimization results
+
+        # Labels dazu aktualisieren
+        self.threshold_value_label.setText(f"{conf_value/100:.2f}")
+        self.iou_value_label.setText(f"{iou_value/100:.2f}")        
+
         summary = (
-            f"Threshold Optimization Complete\n\n"
-            f"Best Configuration:\n"
-            f"- Confidence Threshold: {results['conf']:.2f}\n"
-            f"- IoU Threshold: {results['iou']:.2f}\n"
-            f"- Accuracy: {results['accuracy']:.1f}%\n\n"
-            f"The sliders have been automatically set to these optimal values.\n"
-            f"You can now click 'Bilder-Annotation starten' to run the verification\n"
-            f"with these optimized settings."
+        f"Schwellenwert-Tuning abgeschlossen\n\n"
+            f"Beste Konfiguration:\n"
+            f"- Konfidenz Schwellenwert: {results['conf']:.2f}\n"
+            f"- IoU Schwellenwert: {results['iou']:.2f}\n"
+            f"- Genauigkeit: {results['accuracy']:.1f}%\n\n"
+            f"Die Slider wurden automatisch auf diese Einstellung eingestellt.\n"
+            f"Du kannst jetzt auf 'Bilder-Annotation starten' klicken, um die Verifikation zu starten."
         )
+        
         self.summary_output.setPlainText(summary)
+        self.summary_output.show()
         
         QMessageBox.information(
             self,
-            "Optimization Complete",
-            f"Optimal thresholds found:\nConfidence: {results['conf']:.2f}\nIoU: {results['iou']:.2f}\n"
-            f"Expected accuracy: {results['accuracy']:.1f}%"
+            "Tuning abgeschlossen",
+            f"Optimale Schwellenwerte gefunden:\nKonfidenz: {results['conf']:.2f}\nIoU: {results['iou']:.2f}\n"
+            f"Erwartete Modellgenauigkeit: {results['accuracy']:.1f}%"
         )
 
     def start_live_annotation(self):
@@ -738,11 +896,11 @@ class LiveAnnotationApp(QWidget):
         test_folder = self.folder_line_edit.text().strip()
         
         if not os.path.exists(model_path):
-            QMessageBox.warning(self, "Error", "Please select a valid model file")
+            QMessageBox.warning(self, "Error", "Bitte wählen Sie eine gültige Modell-Datei aus")
             return
             
         if not os.path.isdir(test_folder):
-            QMessageBox.warning(self, "Error", "Please select a valid test folder")
+            QMessageBox.warning(self, "Error", "Bitte wählen Sie ein gültiges Testverzeichnis aus")
             return
 
         # Collect all images in test folder
@@ -751,7 +909,7 @@ class LiveAnnotationApp(QWidget):
             self.image_list.extend(glob.glob(os.path.join(test_folder, ext)))
         self.image_list.sort()
         if not self.image_list:
-            QMessageBox.warning(self, "Error", "No images found in test folder")
+            QMessageBox.warning(self, "Error", "Keine Bilder im Testverzeichnis gefunden")
             return
         
         # Get threshold values from sliders
@@ -762,10 +920,10 @@ class LiveAnnotationApp(QWidget):
         self.worker = AnnotationWorker(
             model_path=model_path,
             image_list=self.image_list,
-            misannotated_dir="",  # Will be created by worker
+            misannotated_dir="",
             threshold=threshold,
             iou_threshold=iou_threshold,
-            tile_size=200
+            tile_size=128
         )
         self.worker.mosaic_updated.connect(self.update_mosaic)
         self.worker.progress_updated.connect(self.progress_bar.setValue)
@@ -781,9 +939,21 @@ class LiveAnnotationApp(QWidget):
         self.mosaic_label.setPixmap(pixmap)
         # Update navigation buttons
         if self.worker:
+            # Anzahl Mosaic-Einträge
+            total_mosaics = len(self.worker.mosaic_history)
+            # Button nur anzeigen, wenn mehr als 1 Mosaik existiert
+            if total_mosaics > 1:
+                self.prev_mosaic_btn.show()
+                self.next_mosaic_btn.show()
+            else:
+                self.prev_mosaic_btn.hide()
+                self.next_mosaic_btn.hide()
+            
+            # Prev-Button nur aktiv, wenn wir nicht beim Index=0 sind
             self.prev_mosaic_btn.setEnabled(self.worker.current_mosaic_index > 0)
+            # Next-Button nur aktiv, wenn wir nicht beim letzten Index sind
             self.next_mosaic_btn.setEnabled(
-                self.worker.current_mosaic_index < len(self.worker.mosaic_history) - 1
+                self.worker.current_mosaic_index < total_mosaics - 1
             )
 
     def show_previous_mosaic(self):
@@ -819,13 +989,13 @@ class LiveAnnotationApp(QWidget):
         # Update Andon display
         if correct_percentage >= 98:
             color = "#4CAF50"  # Green
-            status = "MODELL SEHR GUT"
+            status = "KI-MODELL SEHR GUT"
         elif correct_percentage >= 95:
             color = "#FF9800"  # Orange
-            status = "MODELL AKZEPTABEL"
+            status = "KI-MODELL AKZEPTABEL"
         else:
             color = "#F44336"  # Red
-            status = "MODELL UNGENÜGEND"
+            status = "KI-MODELL UNGENÜGEND"
             
         # Update Andon display (status only)
         self.andon_label.setStyleSheet(f"""
@@ -853,7 +1023,7 @@ class LiveAnnotationApp(QWidget):
     def annotation_finished(self):
         self.start_button.setEnabled(True)
         self.optimize_button.setEnabled(True)
-        logger.info("Live Annotation abgeschlossen.")
+        logger.info("Test-Annotation & Modellverifikation abgeschlossen.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
