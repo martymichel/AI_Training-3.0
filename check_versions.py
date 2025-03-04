@@ -37,6 +37,7 @@ if __name__ == "__main__":
 #### PC Output ####
 """
 PS P:\PY\AI_Training 2.0> uv run check_versions.py
+
 === System Information ===
 Python version: 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 15:23:48) [MSC v.1942 64 bit (AMD64)]
 Platform: Windows-11-10.0.26100-SP0
@@ -57,3 +58,26 @@ torchvision: 0.21.0+cu126
 ultralytics: 8.3.78
 """
 
+#### Notebook Output ####
+"""
+PS C:\Users\miche\Documents\GitHub\AI_Training-3.0> uv run check_versions.py
+
+=== System Information ===
+Python version: 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 15:23:48) [MSC v.1942 64 bit (AMD64)]
+Platform: Windows-11-10.0.22631-SP0
+CPU cores: 22
+RAM: 23.4 GB
+
+=== CUDA Information ===
+CUDA available: True
+CUDA version: 12.6
+GPU device: NVIDIA GeForce RTX 4050 Laptop GPU
+GPU memory: 6.0 GB
+cuDNN version: 90501
+cuDNN enabled: True
+
+=== Package Versions ===
+torch: 2.6.0+cu126
+torchvision: 0.21.0+cpu
+ultralytics: 8.3.78
+"""

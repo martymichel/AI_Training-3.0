@@ -1,5 +1,3 @@
-"""Camera capture application module."""
-
 import sys
 import os
 import cv2
@@ -8,19 +6,86 @@ from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QDialog, QMenu,
-    QLabel, QComboBox, QFileDialog, QMessageBox, QProgressBar
+    QLabel, QComboBox, QFileDialog, QMessageBox, QProgressBar, QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QFileSystemWatcher, QMutex, QMutexLocker
 from PyQt6.QtGui import QImage, QPixmap, QKeyEvent, QFont, QColor, QPalette, QAction
 
 import glob
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(ch)
 
 try:
     from nxt_camera import NxtCamera
     NXT_AVAILABLE = True
 except ImportError:
     NXT_AVAILABLE = False
-    logging.warning("NXT camera support not available")
+    logger.warning("NXT camera support not available")
+
+class CameraSelectionDialog(QDialog):
+    """Dialog for selecting a camera device."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Kamera auswählen")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(self)
+        
+        # Camera list
+        self.camera_list = QListWidget()
+        layout.addWidget(self.camera_list)
+        
+        # Populate camera list
+        self.available_cameras = self.find_cameras()
+        for i, (name, _) in enumerate(self.available_cameras):
+            item = QListWidgetItem(f"Kamera {i}: {name}")
+            self.camera_list.addItem(item)
+        
+        if not self.available_cameras:
+            self.camera_list.addItem("Keine Kameras gefunden")
+            self.camera_list.setEnabled(False)
+        else:
+            self.camera_list.setCurrentRow(0)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        select_btn = QPushButton("Auswählen")
+        select_btn.clicked.connect(self.accept)
+        select_btn.setEnabled(bool(self.available_cameras))
+        cancel_btn = QPushButton("Abbrechen")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(select_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+    
+    def find_cameras(self):
+        """Find available camera devices."""
+        available_cameras = []
+        # Try opening each camera index
+        for i in range(10):  # Check first 10 indexes
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Get camera name if possible
+                name = cap.getBackendName()
+                available_cameras.append((name, i))
+                cap.release()
+        return available_cameras
+    
+    def get_selected_camera(self):
+        """Get the selected camera index."""
+        if not self.available_cameras:
+            return None
+        current_row = self.camera_list.currentRow()
+        if current_row >= 0:
+            return self.available_cameras[current_row][1]
+        return None
 
 class CameraThread(QThread):
     """Thread for camera operations."""
@@ -31,29 +96,31 @@ class CameraThread(QThread):
     def __init__(self, camera_type='usb', camera_id=0, nxt_config=None):
         super().__init__()
         self.camera_type = camera_type
-        self.camera_id = camera_id
+        self.camera_id = int(camera_id)  # Ensure camera_id is int
         self.nxt_config = nxt_config
         self.running = False
         self.camera = None
         self.current_frame = None  # Store the original frame
         self.paused = False
+        self._lock = QMutex()  # Add mutex for thread safety
         
     def run(self):
         """Main camera loop."""
         try:
-            if self.camera_type == 'usb':
-                self.camera = cv2.VideoCapture(self.camera_id)
-                if not self.camera.isOpened():
-                    raise Exception("Could not open USB camera")
-            else:
-                if not NXT_AVAILABLE:
-                    raise Exception("NXT camera support not available")
-                self.camera = NxtCamera(
-                    ip=self.nxt_config['ip'],
-                    username=self.nxt_config['username'],
-                    password=self.nxt_config['password'],
-                    ssl=self.nxt_config['ssl']
-                )
+            with QMutexLocker(self._lock):
+                if self.camera_type == 'usb':
+                    self.camera = cv2.VideoCapture(self.camera_id)
+                    if not self.camera.isOpened():
+                        raise Exception(f"Konnte USB-Kamera {self.camera_id} nicht öffnen")
+                else:
+                    if not NXT_AVAILABLE:
+                        raise Exception("NXT camera support not available")
+                    self.camera = NxtCamera(
+                        ip=self.nxt_config['ip'],
+                        username=self.nxt_config['username'],
+                        password=self.nxt_config['password'],
+                        ssl=self.nxt_config['ssl']
+                    )
             
             self.running = True
             while self.running:
@@ -61,30 +128,31 @@ class CameraThread(QThread):
                     self.msleep(100)
                     continue
                     
-                if self.camera_type == 'usb':
-                    ret, frame = self.camera.read()
-                    if not ret:
-                        raise Exception("Failed to grab frame from USB camera")
-                else:
-                    frame = self.camera.get_frame()
-                
-                # Store original frame
-                self.current_frame = frame.copy()
-                
-                # Convert frame to QImage
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb_frame.shape
-                bytes_per_line = ch * w
-                qt_image = QImage(
-                    rgb_frame.data,
-                    w, h,
-                    bytes_per_line,
-                    QImage.Format.Format_RGB888
-                )
-                self.frame_ready.emit(qt_image)
+                with QMutexLocker(self._lock):
+                    if self.camera_type == 'usb':
+                        ret, frame = self.camera.read()
+                        if not ret:
+                            raise Exception("Konnte kein Bild von der USB-Kamera empfangen")
+                    else:
+                        frame = self.camera.get_frame()
+                    
+                    # Store original frame
+                    self.current_frame = frame.copy()
+                    
+                    # Convert frame to QImage
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    h, w, ch = rgb_frame.shape
+                    bytes_per_line = ch * w
+                    qt_image = QImage(
+                        rgb_frame.data,
+                        w, h,
+                        bytes_per_line,
+                        QImage.Format.Format_RGB888
+                    )
+                    self.frame_ready.emit(qt_image)
                 
         except Exception as e:
-            self.error.emit(str(e))
+            self.error.emit(f"Kamera-Fehler: {str(e)}")
         finally:
             if self.camera:
                 if self.camera_type == 'usb':
@@ -92,11 +160,40 @@ class CameraThread(QThread):
                 else:
                     self.camera.disconnect()
     
+    @property
+    def is_running(self):
+        """Check if camera thread is running."""
+        return self.running and not self.paused
+    
     def stop(self):
         """Stop camera thread."""
-        self.running = False
-        self.paused = False
-        self.wait()
+        try:
+            with QMutexLocker(self._lock):
+                self.running = False
+                self.paused = True  # Pause first to avoid frame grab errors
+            
+            # Wait for thread to finish with timeout
+            if not self.wait(500):  # 500ms timeout
+                logger.warning("Camera thread did not stop gracefully, forcing termination")
+                self.terminate()
+                self.wait()
+            
+            # Final cleanup
+            with QMutexLocker(self._lock):
+                if self.camera:
+                    logger.info("Releasing camera resources...")
+                    if self.camera_type == 'usb':
+                        self.camera.release()
+                    else:
+                        self.camera.disconnect()
+                self.camera = None
+                
+        except Exception as e:
+            logger.error(f"Error stopping camera thread: {e}")
+            # Ensure thread is terminated even if error occurs
+            self.terminate()
+            self.wait()
+            raise  # Re-raise exception to be handled by caller
 
 class ThumbnailWidget(QLabel):
     """Widget for displaying image thumbnails."""
@@ -157,7 +254,8 @@ class CameraApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Camera Capture")
-        self.setGeometry(100, 100, 800, 600)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)  # Prevent auto-deletion
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         
         # Initialize attributes
         self.camera_thread = None
@@ -278,31 +376,53 @@ class CameraApp(QMainWindow):
     def toggle_camera(self):
         """Connect or disconnect camera."""
         if self.camera_thread and self.camera_thread.running:
-            # Disconnect
-            self.camera_thread.stop()
-            self.camera_thread = None
-            self.connect_btn.setText("Connect")
-            self.capture_btn.setEnabled(False)
-            self.statusBar().showMessage("Camera disconnected")
-            self.video_label.clear()
-            self.video_label.setStyleSheet("background-color: black;")
+            try:
+                # Stop camera thread first
+                logger.info("Stopping camera thread...")
+                self.camera_thread.stop()
+                
+                # Reset UI state
+                self.camera_thread = None
+                self.connect_btn.setText("Connect")
+                self.capture_btn.setEnabled(False)
+                self.statusBar().showMessage("Camera disconnected")
+                self.video_label.clear()
+                self.video_label.setStyleSheet("background-color: black;")
+                self.capture_btn.setFocus()  # Reset focus to capture button
+                
+            except Exception as e:
+                logger.error(f"Error disconnecting camera: {e}")
+                QMessageBox.critical(self, "Fehler", f"Fehler beim Trennen der Kamera: {str(e)}")
+                return
+                
         else:
             # Connect
             try:
                 camera_type = 'nxt' if "NXT" in self.camera_combo.currentText() else 'usb'
                 
                 if camera_type == 'nxt':
+                    # Show NXT camera config dialog
                     nxt_config = {
                         'ip': '169.254.100.99',
                         'username': 'admin',
                         'password': 'Flex',
                         'ssl': False
                     }
+                    camera_id = 0
                 else:
+                    # Show USB camera selection dialog
+                    camera_dialog = CameraSelectionDialog(self)
+                    if camera_dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    camera_id = camera_dialog.get_selected_camera()
+                    if camera_id is None:
+                        QMessageBox.warning(self, "Warnung", "Keine Kamera ausgewählt")
+                        return
                     nxt_config = None
                 
                 self.camera_thread = CameraThread(
                     camera_type=camera_type,
+                    camera_id=camera_id,
                     nxt_config=nxt_config
                 )
                 self.camera_thread.frame_ready.connect(self.update_frame)
@@ -314,7 +434,7 @@ class CameraApp(QMainWindow):
                 self.statusBar().showMessage("Camera connected")
                 
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to connect to camera: {str(e)}")
+                QMessageBox.critical(self, "Fehler", f"Fehler beim Verbinden mit der Kamera: {str(e)}")
     
     def update_frame(self, image):
         """Update video display with new frame."""
@@ -327,8 +447,12 @@ class CameraApp(QMainWindow):
     
     def handle_error(self, message):
         """Handle camera errors."""
-        QMessageBox.critical(self, "Camera Error", message)
-        self.toggle_camera()  # Disconnect on error
+        try:
+            QMessageBox.critical(self, "Kamera-Fehler", message)
+            if self.camera_thread and self.camera_thread.running:
+                self.toggle_camera()  # Disconnect on error
+        except Exception as e:
+            logger.error(f"Error handling camera error: {e}")
     
     def browse_directory(self):
         """Open file dialog to select output directory."""
@@ -522,13 +646,35 @@ class CameraApp(QMainWindow):
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard events."""
         if event.key() == Qt.Key.Key_Space:
-            if self.capture_btn.isEnabled():
+            if self.capture_btn.isEnabled() and self.capture_btn.hasFocus():
                 self.capture_image()
         else:
             super().keyPressEvent(event)
+
+    def showEvent(self, event):
+        """Handle window show event."""
+        super().showEvent(event)
+        # Set initial focus to capture button
+        self.capture_btn.setFocus()
     
     def closeEvent(self, event):
         """Handle window close event."""
+        try:
+            if self.camera_thread and self.camera_thread.running:
+                self.camera_thread.stop()
+                self.camera_thread = None
+            self.hide()  # Hide window instead of closing
+            event.ignore()  # Prevent window from being destroyed
+        except Exception as e:
+            logger.error(f"Error in closeEvent: {e}")
+            event.ignore()
+
+    def hideEvent(self, event):
+        """Handle window hide event."""
+        super().hideEvent(event)
+        # Ensure camera is disconnected when window is hidden
         if self.camera_thread and self.camera_thread.running:
-            self.camera_thread.stop()
-        event.accept()
+            try:
+                self.toggle_camera()
+            except Exception as e:
+                logger.error(f"Error disconnecting camera on hide: {e}")
