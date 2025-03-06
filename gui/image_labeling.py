@@ -16,10 +16,14 @@ import utils.labeling_utils as utils
 class ResizableRectItem(QGraphicsRectItem):
     def __init__(self, rect, class_id, parent=None):
         super().__init__(rect, parent)
+        self.initial_rect = rect
         self.scene_ref = None  # Reference to scene for updating annotations
         self.class_id = class_id
         self.handles = []
         self.handle_size = QSizeF(10.0, 10.0)
+        self.resize_handle = None
+        self.is_resizing = False
+        self.is_moving = False
         self.setFlags(
             QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable |
@@ -57,18 +61,21 @@ class ResizableRectItem(QGraphicsRectItem):
     def mousePressEvent(self, event):
         """Handle mouse press events for resizing."""
         if event.button() == Qt.MouseButton.LeftButton:
+            self.initial_rect = self.rect()
             pos = event.pos()
             # Check if we clicked on a handle
             for i, handle in enumerate(self.handles):
                 if (pos - handle).manhattanLength() < 10:
                     self.setSelected(True)
                     self.resize_handle = i
+                    self.is_resizing = True
                     return
+            self.is_moving = True
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """Handle mouse move events for resizing."""
-        if hasattr(self, 'resize_handle'):
+        if self.is_resizing and self.resize_handle is not None:
             pos = event.pos()
             rect = self.rect()
             if self.resize_handle == 0:  # Top-left
@@ -82,27 +89,30 @@ class ResizableRectItem(QGraphicsRectItem):
             self.setRect(rect.normalized())
             self.updateHandles()
             return
+        elif self.is_moving:
+            super().mouseMoveEvent(event)
+            self.scene().update()
+            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release events."""
-        if hasattr(self, 'resize_handle'):
-            # Store position after resize
-            del self.resize_handle
+        if self.is_resizing or self.is_moving:
+            self.is_resizing = False
+            self.is_moving = False
+            self.resize_handle = None
             self.store_position()
         super().mouseReleaseEvent(event)
 
     def store_position(self):
         """Store the current position and dimensions."""
         if hasattr(self, 'scene_ref') and self.scene_ref and isinstance(self.scene_ref, ImageScene):
-            QTimer.singleShot(0, self.scene_ref.store_item_changes)
+            self.scene_ref.store_item_changes()
 
     def itemChange(self, change, value):
         """Handle item changes to prevent trailing effect."""
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
-            # Store position after move
             self.scene().update()  # Force scene update to prevent trailing
-            self.store_position()
         return super().itemChange(change, value)
 
 # -------------------------------
@@ -111,6 +121,7 @@ class ResizableRectItem(QGraphicsRectItem):
 class ImageScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_item = None
         self.main_window = None  # Reference to main window for storing annotations
         self.drawing = False
         self.start = QPointF()
@@ -120,6 +131,13 @@ class ImageScene(QGraphicsScene):
         self.current_class = 0
 
     def mousePressEvent(self, event):
+        # If we clicked on an existing item, let it handle the event
+        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        if item and isinstance(item, ResizableRectItem):
+            self.current_item = item
+            super().mousePressEvent(event)
+            return
+
         if event.button() == Qt.MouseButton.LeftButton:
             self.drawing = True
             self.start = event.scenePos()
@@ -130,23 +148,30 @@ class ImageScene(QGraphicsScene):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self.current_item:
+            super().mouseMoveEvent(event)
+            return
+
         if self.drawing and self.temp_rect:
             rect = QRectF(self.start, event.scenePos()).normalized()
             self.temp_rect.setRect(rect)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self.current_item:
+            self.current_item = None
+            super().mouseReleaseEvent(event)
+            return
+
         if event.button() == Qt.MouseButton.LeftButton and self.drawing:
             self.drawing = False
             final_rect = self.temp_rect.rect()
             if final_rect.width() < self.min_size or final_rect.height() < self.min_size:
                 self.removeItem(self.temp_rect)
             else:
-                # Create resizable rect item with proper parameters
                 self.removeItem(self.temp_rect)
                 rect_item = ResizableRectItem(final_rect, self.current_class, None)
-                pen = QPen(self.current_color, 2)
-                rect_item.setPen(pen)
+                rect_item.setPen(QPen(self.current_color, 2))
                 rect_item.scene_ref = self  # Set scene reference
                 self.addItem(rect_item)
                 self.store_item_changes()  # Store initial box position
@@ -156,12 +181,7 @@ class ImageScene(QGraphicsScene):
     def store_item_changes(self):
         """Store current annotations when boxes change."""
         if self.main_window:
-            # Use QTimer to avoid multiple rapid saves
-            if not hasattr(self, '_save_timer'):
-                self._save_timer = QTimer()
-                self._save_timer.setSingleShot(True)
-                self._save_timer.timeout.connect(self.main_window.store_annotations)
-            self._save_timer.start(100)  # Wait 100ms before saving
+            self.main_window.store_annotations()
 
 # -------------------------------
 # Hauptapplikation
@@ -249,9 +269,11 @@ class ImageLabelingApp(QMainWindow):
                 padding: 8px;
                 margin: 2px;
                 border-radius: 4px;
+                border: 2px solid transparent;
             }
             QListWidget::item:selected {
-                background-color: rgba(0, 0, 0, 0.1);
+                background-color: rgba(255, 255, 255, 0.5);
+                border: 2px solid currentColor;
             }
         """)
         scroll = QScrollArea()
@@ -370,15 +392,14 @@ class ImageLabelingApp(QMainWindow):
     def update_class_list(self):
         """Aktualisiert die Anzeige der Klassenliste mit doppelter, fetter Schrift und farbigem Hintergrund."""
         self.class_list.clear()
-        font = QFont("Arial", 12, QFont.Weight.Bold)
+        font = QFont("Arial", 11, QFont.Weight.Bold)
         for idx, (name, color) in enumerate(self.classes):
             item = QListWidgetItem(name)
             item.setFont(font)
-            # Create a semi-transparent version of the color for better readability
-            bg_color = QColor(color)
-            bg_color.setAlpha(40)  # 40% opacity
-            item.setBackground(QBrush(bg_color))
-            item.setForeground(QBrush(color.darker(150)))  # Darker text color
+            # Set background with proper opacity
+            item.setBackground(QBrush(QColor(color.red(), color.green(), color.blue(), 40)))
+            # Set text color to match class color
+            item.setForeground(QBrush(color))
             self.class_list.addItem(item)
 
     def choose_source_dir(self):
@@ -510,11 +531,17 @@ class ImageLabelingApp(QMainWindow):
     def store_annotations(self):
         """Speichert die aktuellen Annotationen des angezeigten Bildes."""
         image_path = self.image_files[self.current_index]
+        if not image_path:
+            return
+            
         ann_list = []
         for item in self.scene.items():
             if isinstance(item, ResizableRectItem):
                 r = item.rect()
-                ann_list.append((item.class_id, r.x(), r.y(), r.x() + r.width(), r.y() + r.height()))
+                pos = item.scenePos()
+                x = pos.x() + r.x()
+                y = pos.y() + r.y()
+                ann_list.append((item.class_id, x, y, x + r.width(), y + r.height()))
         self.annotations[image_path] = ann_list
 
     def next_image(self):
