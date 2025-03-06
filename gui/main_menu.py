@@ -1,7 +1,5 @@
-"""Main menu window for launching different applications."""
-
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizePolicy, QSpacerItem
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -14,190 +12,154 @@ from gui.image_labeling import ImageLabelingApp
 from gui.camera_app import CameraApp
 from gui.live_detection import LiveDetectionApp
 from gui.gui_dashboard import DashboardWindow
+
 class MainMenu(QMainWindow):
     """Main menu window providing access to different applications."""
     
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AI Vision Tools")
-        self.setGeometry(100, 100, 800, 500)
-        
-        # Zentral-Widget und Layout
+        # Maximiertes Startfenster, unabhaengig von der Bildschirmgroesse
+        self.showMaximized()
+        # Hintergrundfarbe des Hauptfensters
+        self.setStyleSheet("background-color: #1b3b42; color: white;")
+
+        # Zentrales Widget mit vertikalem Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setSpacing(20)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(15)
+        # Abstand zu den Seitenraendern
+        layout.setContentsMargins(200, 60, 200, 60)
         
-        # Überschrift
+        # Header
         title = QLabel("AI Vision Tools")
-        title_font = QFont()
-        title_font.setPointSize(24)
-        title_font.setBold(True)
+        title_font = QFont("Arial", 32, QFont.Weight.Bold)
         title.setFont(title_font)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-
-        # Unterüberschrift
-        subtitle = QLabel(
-            "by Michel Marty"
-        )
-        subtitle_font = QFont()
-        subtitle_font.setPointSize(16)
-        subtitle.setFont(subtitle_font)
+        
+        subtitle = QLabel("by Michel Marty")
+        subtitle.setFont(QFont("Arial", 18))
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
         
-        # Beschreibung
-        description = QLabel(
-            "Willkommen bei den AI Vision Tools. "
-            "Wähle eine Anwendung aus:"
-        )
-        description.setWordWrap(True)
+        description = QLabel("Willkommen bei den AI Vision Tools. Wähle eine Anwendung aus:")
+        description.setFont(QFont("Arial", 14))
         description.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        description_font = QFont()
-        description_font.setPointSize(12)
-        description.setFont(description_font)
         layout.addWidget(description)
 
-        # Button-Schriftart
-        button_font = QFont()
-        button_font.setPointSize(12)
-
-        # Camera App Button
-        self.camera_button = QPushButton("1. Kamera Livestream / Bilder aufnehmen")
-        self.camera_button.setMinimumHeight(60)
-        self.camera_button.clicked.connect(self.open_camera)
-        self.camera_button.setFont(button_font)
-        layout.addWidget(self.camera_button)        
-
-        # Image Labeling Button
-        self.labeling_button = QPushButton("2. Bilder Labeln / Bounding Boxen markieren")
-        self.labeling_button.setMinimumHeight(60)
-        self.labeling_button.clicked.connect(self.open_labeling)
-        self.labeling_button.setFont(button_font)
-        layout.addWidget(self.labeling_button)
-
-        # Image Augmentation Button
-        self.augmentation_button = QPushButton("3. Bilder vervielfältigen (Augmentierung)")
-        self.augmentation_button.setMinimumHeight(60)
-        self.augmentation_button.clicked.connect(self.open_augmentation)
-        self.augmentation_button.setFont(button_font)
-        layout.addWidget(self.augmentation_button)
+        # Abstand zwischen "Willkommen-Text" und den Buttons
+        spacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        layout.addItem(spacer)
         
-        # Dataset Viewer Button
-        self.dataset_viewer_button = QPushButton("4. Bounding Boxen prüfen / Dataset Viewer")
-        self.dataset_viewer_button.setMinimumHeight(60)
-        self.dataset_viewer_button.clicked.connect(self.open_dataset_viewer)
-        self.dataset_viewer_button.setFont(button_font)
-        layout.addWidget(self.dataset_viewer_button)        
-        
-        # Dataset Splitter Button
-        self.splitter_button = QPushButton("5. Dataset Splitter (Train/Validation/Test)")
-        self.splitter_button.setMinimumHeight(60)
-        self.splitter_button.clicked.connect(self.open_splitter)
-        self.splitter_button.setFont(button_font)
-        layout.addWidget(self.splitter_button)
+        # Button-Stil (zentriert, Hintergrundfarbe, Schriftart, Schriftgröße, Schriftfarbe, abgerundete Ecken)
+        button_font = QFont("Arial", 14)
+        button_style = """
+            QPushButton {
+                background-color: #165a69;
+                color: white;
+                padding: 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                min-width: 300px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #7ABF5A;
+            }
+        """
 
-        # YOLO Trainer Button
-        self.yolo_button = QPushButton("6. YOLO Trainer / Modell-Training")
-        self.yolo_button.setMinimumHeight(60)
-        self.yolo_button.clicked.connect(self.open_yolo_trainer)
-        self.yolo_button.setFont(button_font)
+        def create_button(text, callback, tooltip):
+            btn = QPushButton(text)
+            btn.setFont(button_font)
+            btn.setStyleSheet(button_style)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(callback)
+            return btn
         
-        # Create horizontal layout for YOLO and Dashboard buttons
-        yolo_layout = QHBoxLayout()
-        yolo_layout.addWidget(self.yolo_button)
+        # Buttons-Layout
+        layout.addWidget(create_button("1. Kamera Livestream / Bilder aufnehmen", self.open_camera,
+            "Öffnet den Kamera-Livestream, um Bilder für das Training eines KI-Modells aufzunehmen."))
+        layout.addWidget(create_button("2. Bilder Labeln / Bounding Boxen markieren", self.open_labeling,
+            "Ermöglicht das Annotieren von Bildern mit Bounding Boxen, ein essenzieller Schritt für YOLO-Modelle."))
         
-        # Training Dashboard Button
-        self.dashboard_button = QPushButton("Training-Dashboard")
-        self.dashboard_button.setMinimumHeight(60)
-        self.dashboard_button.clicked.connect(self.open_dashboard)
-        self.dashboard_button.setFont(button_font)
-        yolo_layout.addWidget(self.dashboard_button)
+        # Augmentierung & Dataset Viewer nebeneinander
+        row1 = QHBoxLayout()
+        row1.addWidget(create_button("3. Bilder augmentieren", self.open_augmentation,
+            "Erzeugt neue Bildvariationen durch Transformationen wie Drehen, Spiegeln und Skalieren."))
+        row1.addWidget(create_button("Labels prüfen / Dataset Viewer", self.open_dataset_viewer,
+            "Visualisiert und überprüft Bounding Boxen im Datensatz vor dem Training."))
+        layout.addLayout(row1)
         
-        layout.addLayout(yolo_layout)
-
-        # Modell-Verifikation Button
-        self.verification_button = QPushButton("7. Modell-Verifikation / Annotation mit Test-Dataset")
-        self.verification_button.setMinimumHeight(60)
-        self.verification_button.clicked.connect(self.open_verification)
-        self.verification_button.setFont(button_font)        
-        layout.addWidget(self.verification_button)
-
-        # Live Detection Button
-        self.detection_button = QPushButton("8. Live Objekterkennung / Annotation mit Kamerastream")
-        self.detection_button.setMinimumHeight(60)
-        self.detection_button.clicked.connect(self.open_detection)
-        self.detection_button.setFont(button_font)
-        layout.addWidget(self.detection_button)
+        layout.addWidget(create_button("4. Dataset Splitter (Train/Validation/Test)", self.open_splitter,
+            "Teilt den Datensatz in Trainings-, Validierungs- und Testdaten auf."))
         
-        # Platzhalter für weitere Apps
+        # YOLO Trainer & Dashboard nebeneinander
+        row2 = QHBoxLayout()
+        row2.addWidget(create_button("5. KI-Trainer / Modell-Training", self.open_yolo_trainer,
+            "Trainiert ein YOLO-Modell basierend auf den annotierten Bildern."))
+        row2.addWidget(create_button("Training-Dashboard", self.open_dashboard,
+            "Zeigt Trainingsfortschritt und Modellmetriken."))
+        layout.addLayout(row2)
+        
+        layout.addWidget(create_button("6. Modell-Verifikation / Test-Dataset", self.open_verification,
+            "Überprüft das trainierte Modell mit einem separaten Test-Datensatz."))
+        layout.addWidget(create_button("7. Live Objekterkennung / Kamerastream", self.open_detection,
+            "Erkennt Objekte in Echtzeit aus einem Kamerastream."))
+        
         layout.addStretch()
-        
-        # Speichern der Fenster-Referenzen
         self.windows = {}
 
+        # Footer ganz unten am Fenster zentriert
+        # Text: "Application by Michel Marty for flex precision plastic solutions AG switzerland (copyright symbol) 2025"
+        footer = QLabel("Application by Michel Marty for Flex Precision Plastic Solutions AG Switzerland © 2025")
+        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout.addWidget(footer)
+
+    
     def open_camera(self):
-        """Open the camera application window."""
         if 'camera' not in self.windows:
             self.windows['camera'] = CameraApp()
         self.windows['camera'].show()
-        self.windows['camera'].activateWindow()
     
-    def open_yolo_trainer(self):
-        """Open the YOLO trainer window."""
-        if 'yolo_trainer' not in self.windows:
-            self.windows['yolo_trainer'] = TrainSettingsWindow()
-        self.windows['yolo_trainer'].show()
-        self.windows['yolo_trainer'].activateWindow()
-
+    def open_labeling(self):
+        if 'labeling' not in self.windows:
+            self.windows['labeling'] = ImageLabelingApp()
+        self.windows['labeling'].show()
+    
     def open_augmentation(self):
-        """Open the image augmentation window."""
         if 'augmentation' not in self.windows:
             self.windows['augmentation'] = ImageAugmentationApp()
         self.windows['augmentation'].show()
-        self.windows['augmentation'].activateWindow()
-
+    
     def open_dataset_viewer(self):
-        """Open the dataset viewer window."""
         if 'dataset_viewer' not in self.windows:
             self.windows['dataset_viewer'] = DatasetViewerApp()
         self.windows['dataset_viewer'].show()
-        self.windows['dataset_viewer'].activateWindow()
-
-    def open_verification(self):
-        """Open the model verification window."""
-        if 'verification' not in self.windows:
-            self.windows['verification'] = LiveAnnotationApp()
-        self.windows['verification'].show()
-        self.windows['verification'].activateWindow()
-
+    
     def open_splitter(self):
-        """Open the dataset splitter window."""
         if 'splitter' not in self.windows:
             self.windows['splitter'] = DatasetSplitterApp()
         self.windows['splitter'].show()
-        self.windows['splitter'].activateWindow()
-
-    def open_labeling(self):
-        """Open the image labeling window."""
-        if 'labeling' not in self.windows:
-            from gui.image_labeling import ImageLabelingApp
-            self.windows['labeling'] = ImageLabelingApp()
-        self.windows['labeling'].show()
-        self.windows['labeling'].activateWindow()
-
-    def open_detection(self):
-        """Open the live detection application window."""
-        if 'detection' not in self.windows:
-            self.windows['detection'] = LiveDetectionApp()
-        self.windows['detection'].show()
-        self.windows['detection'].activateWindow()        
-
+    
+    def open_yolo_trainer(self):
+        if 'yolo_trainer' not in self.windows:
+            self.windows['yolo_trainer'] = TrainSettingsWindow()
+        self.windows['yolo_trainer'].show()
+    
     def open_dashboard(self):
-        """Open the training dashboard window."""
         if 'dashboard' not in self.windows:
             self.windows['dashboard'] = DashboardWindow()
         self.windows['dashboard'].show()
-        self.windows['dashboard'].activateWindow()
+    
+    def open_verification(self):
+        if 'verification' not in self.windows:
+            self.windows['verification'] = LiveAnnotationApp()
+        self.windows['verification'].show()
+    
+    def open_detection(self):
+        if 'detection' not in self.windows:
+            self.windows['detection'] = LiveDetectionApp()
+        self.windows['detection'].show()
