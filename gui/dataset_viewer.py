@@ -351,7 +351,7 @@ class DatasetViewerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dataset Viewer")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         
         # Initialize UI
         self.init_ui()

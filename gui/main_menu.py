@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizePolicy, QSpacerItem
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSizePolicy, QSpacerItem, QStyle
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont, QPixmap, QIcon
 from gui.gui_settings import TrainSettingsWindow
 from gui.augmentation_app import ImageAugmentationApp
 from gui.dataset_viewer import DatasetViewerApp
@@ -19,18 +19,27 @@ class MainMenu(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AI Vision Tools")
-        # Maximiertes Startfenster, unabhaengig von der Bildschirmgroesse
-        self.showMaximized()
+        # Maximiertes Startfenster, unabhängig von der Bildschirmgröße
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         # Hintergrundfarbe des Hauptfensters
-        self.setStyleSheet("background-color: #1b3b42; color: white;")
+        self.setStyleSheet("background-color: #292b2f; color: white;")
 
         # Zentrales Widget mit vertikalem Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setSpacing(15)
-        # Abstand zu den Seitenraendern
-        layout.setContentsMargins(200, 60, 200, 60)
+        layout.setContentsMargins(200, 60, 200, 60)  # Abstand zu den Seitenrändern
+
+        # Logo oben links
+        logo_layout = QHBoxLayout()
+        self.logo_label = QLabel()
+        pixmap = QPixmap("img/logo.png")
+        self.logo_label.setPixmap(pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        logo_layout.addWidget(self.logo_label)
+        logo_layout.addStretch()
+        layout.addLayout(logo_layout)
         
         # Header
         title = QLabel("AI Vision Tools")
@@ -70,43 +79,38 @@ class MainMenu(QMainWindow):
             }
         """
 
-        def create_button(text, callback, tooltip):
-            btn = QPushButton(text)
-            btn.setFont(button_font)
-            btn.setStyleSheet(button_style)
-            btn.setToolTip(tooltip)
-            btn.clicked.connect(callback)
-            return btn
-        
-        # Buttons-Layout
-        layout.addWidget(create_button("1. Kamera Livestream / Bilder aufnehmen", self.open_camera,
-            "Öffnet den Kamera-Livestream, um Bilder für das Training eines KI-Modells aufzunehmen."))
-        layout.addWidget(create_button("2. Bilder Labeln / Bounding Boxen markieren", self.open_labeling,
-            "Ermöglicht das Annotieren von Bildern mit Bounding Boxen, ein essenzieller Schritt für YOLO-Modelle."))
-        
+        # Buttons mit Icons
+        layout.addWidget(self.create_button("1. Kamera Livestream / Bilder aufnehmen", self.open_camera,
+            "Öffnet den Kamera-Livestream, um Bilder für das Training eines KI-Modells aufzunehmen.", QStyle.StandardPixmap.SP_DriveCDIcon))
+
+        layout.addWidget(self.create_button("2. Bilder Labeln / Bounding Boxen markieren", self.open_labeling,
+            "Ermöglicht das Annotieren von Bildern mit Bounding Boxen, ein essenzieller Schritt für YOLO-Modelle.", QStyle.StandardPixmap.SP_FileDialogDetailedView))
+
         # Augmentierung & Dataset Viewer nebeneinander
         row1 = QHBoxLayout()
-        row1.addWidget(create_button("3. Bilder augmentieren", self.open_augmentation,
-            "Erzeugt neue Bildvariationen durch Transformationen wie Drehen, Spiegeln und Skalieren."))
-        row1.addWidget(create_button("Labels prüfen / Dataset Viewer", self.open_dataset_viewer,
-            "Visualisiert und überprüft Bounding Boxen im Datensatz vor dem Training."))
+        row1.addWidget(self.create_button("3. Bilder augmentieren", self.open_augmentation,
+            "Erzeugt neue Bildvariationen durch Transformationen wie Drehen, Spiegeln und Skalieren.", QStyle.StandardPixmap.SP_ComputerIcon))
+        row1.addWidget(self.create_button("Labels prüfen / Dataset Viewer", self.open_dataset_viewer,
+            "Visualisiert und überprüft Bounding Boxen im Datensatz vor dem Training.", QStyle.StandardPixmap.SP_FileDialogInfoView))
         layout.addLayout(row1)
-        
-        layout.addWidget(create_button("4. Dataset Splitter (Train/Validation/Test)", self.open_splitter,
-            "Teilt den Datensatz in Trainings-, Validierungs- und Testdaten auf."))
-        
+
+        layout.addWidget(self.create_button("4. Dataset Splitter (Train/Validation/Test)", self.open_splitter,
+            "Teilt den Datensatz in Trainings-, Validierungs- und Testdaten auf.", QStyle.StandardPixmap.SP_DirIcon))
+
         # YOLO Trainer & Dashboard nebeneinander
         row2 = QHBoxLayout()
-        row2.addWidget(create_button("5. KI-Trainer / Modell-Training", self.open_yolo_trainer,
-            "Trainiert ein YOLO-Modell basierend auf den annotierten Bildern."))
-        row2.addWidget(create_button("Training-Dashboard", self.open_dashboard,
-            "Zeigt Trainingsfortschritt und Modellmetriken."))
+        row2.addWidget(self.create_button("5. KI-Trainer / Modell-Training", self.open_yolo_trainer,
+            "Trainiert ein YOLO-Modell basierend auf den annotierten Bildern.", QStyle.StandardPixmap.SP_ArrowRight))
+        row2.addWidget(self.create_button("Training-Dashboard", self.open_dashboard,
+            "Zeigt Trainingsfortschritt und Modellmetriken.", QStyle.StandardPixmap.SP_ComputerIcon))
         layout.addLayout(row2)
-        
-        layout.addWidget(create_button("6. Modell-Verifikation / Test-Dataset", self.open_verification,
-            "Überprüft das trainierte Modell mit einem separaten Test-Datensatz."))
-        layout.addWidget(create_button("7. Live Objekterkennung / Kamerastream", self.open_detection,
-            "Erkennt Objekte in Echtzeit aus einem Kamerastream."))
+
+        layout.addWidget(self.create_button("6. Modell-Verifikation / Test-Dataset", self.open_verification,
+            "Überprüft das trainierte Modell mit einem separaten Test-Datensatz.", QStyle.StandardPixmap.SP_FileDialogContentsView))
+
+        layout.addWidget(self.create_button("7. Live Objekterkennung / Kamerastream", self.open_detection,
+            "Erkennt Objekte in Echtzeit aus einem Kamerastream.", QStyle.StandardPixmap.SP_MediaPlay))
+
         
         layout.addStretch()
         self.windows = {}
@@ -117,6 +121,30 @@ class MainMenu(QMainWindow):
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout.addWidget(footer)
+
+    def create_button(self, text, callback, tooltip, icon, button_font=QFont("Arial", 14)):
+        btn = QPushButton(text)
+        btn.setFont(button_font)
+        button_style = """
+            QPushButton {
+                background-color: #165a69;
+                color: white;
+                padding: 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                min-width: 300px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #7ABF5A;
+            }
+        """
+        btn.setStyleSheet(button_style)
+        btn.setToolTip(tooltip)
+        btn.setIcon(self.style().standardIcon(icon))  # StandardPixmap korrekt laden
+        btn.setIconSize(QSize(32, 32))
+        btn.clicked.connect(callback)
+        return btn    
 
     
     def open_camera(self):
