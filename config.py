@@ -7,20 +7,20 @@ from typing import Dict, Any
 class TrainingDefaults:
     """Default values for training parameters."""
     epochs: int = 100
-    image_size: int = 1280
-    batch: float = 0.9
+    image_size: int = 640
+    batch: float = 0.8
     lr0: float = 0.005
     resume: bool = False
     multi_scale: bool = False
     cos_lr: bool = True
-    close_mosaic: int = 0
+    close_mosaic: int = 10
     momentum: float = 0.9
     warmup_epochs: int = 3
-    warmup_momentum: float = 0.9
+    warmup_momentum: float = 0.93
     box: int = 7
-    dropout: float = 0.1
-    project_dir: str = "yolo_training_results"
-    experiment_name: str = "experiment"
+    dropout: float = 0.0
+    project_dir: str = "KI_Objekterkennung"
+    experiment_name: str = "Training_1"
 
 @dataclass
 class UIConfig:

@@ -134,6 +134,8 @@ class ImageAugmentationApp(QMainWindow):
         # Left panel for settings
         left_panel = QWidget()
         left_panel.setFixedWidth(400)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(10, 10, 10, 10)
         left_panel.setStyleSheet("""
             QWidget {
                 background-color: #f5f5f5;
@@ -143,20 +145,18 @@ class ImageAugmentationApp(QMainWindow):
                 background-color: #ffffff;
                 border: 1px solid #ddd;
                 border-radius: 4px;
-                padding: 8px;
-                margin: 8px;
+                padding: 4px;
+                margin: 4px;
             }
             QLabel {
                 padding: 4px;
             }
         """)
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(20, 20, 20, 20)
 
         # Right panel for preview
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(20, 20, 20, 20)
+        right_layout.setContentsMargins(10, 10, 10, 10)
 
         # Preview label
         self.preview_label = QLabel()
@@ -171,20 +171,20 @@ class ImageAugmentationApp(QMainWindow):
         self.source_label = QLabel("Quellverzeichnis:")
         self.source_label.setStyleSheet("color: black;")
         self.source_path_button = QPushButton("Durchsuchen")
-        self.source_path_button.clicked.connect(self.browse_source)
         self.source_layout = QHBoxLayout()
         self.source_layout.addWidget(self.source_label)
         self.source_layout.addWidget(self.source_path_button)
+        self.source_path_button.clicked.connect(self.browse_source)
         left_layout.addLayout(self.source_layout)
 
         # Destination directory
         self.dest_label = QLabel("Zielverzeichnis:")
         self.dest_label.setStyleSheet("color: black;")
         self.dest_path_button = QPushButton("Durchsuchen")
-        self.dest_path_button.clicked.connect(self.browse_dest)
         self.dest_layout = QHBoxLayout()
         self.dest_layout.addWidget(self.dest_label)
         self.dest_layout.addWidget(self.dest_path_button)
+        self.dest_path_button.clicked.connect(self.browse_dest)
         left_layout.addLayout(self.dest_layout)
 
         # Combined count info
@@ -207,28 +207,69 @@ class ImageAugmentationApp(QMainWindow):
         # Augmentation method selection
         self.method_group = QGroupBox("Augmentierungsmethoden auswählen")
         self.method_layout = QVBoxLayout()
+        
+        # Preview toggle
+        preview_layout = QHBoxLayout()
+        self.preview_checkbox = QCheckBox("Bild Vorschau anzeigen")
+        self.preview_checkbox.setChecked(True)
+        preview_layout.addWidget(self.preview_checkbox)
+        preview_layout.addStretch()
+        self.method_layout.addLayout(preview_layout)
+        
         self.method_group.setLayout(self.method_layout)
         left_layout.addWidget(self.method_group)
         
         # Update checkbox style
         self.method_group.setStyleSheet("""
             QGroupBox {
-                font-weight: bold;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                margin-top: 1ex;
-                padding: 10px;
+                font-weight: bold; 
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 2ex;
+                padding: 15px;
+                background: white;
             }
             QCheckBox {
-                color: black;
-                padding: 5px;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                background-color: #f8f8f8;
-                margin: 2px;
+                spacing: 5px;
+                color: #333;
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 15px;
+                background-color: white;
+                margin: 4px;
+                min-width: 70px;
+                position: relative;
             }
             QCheckBox:hover {
-                background-color: #f0f0f0;
+                border-color: #2196F3;
+            }
+            QCheckBox::indicator {
+                width: 25px;
+                height: 25px;
+                border-radius: 12px;
+                border: 2px solid #ddd;
+                background: white;
+            }
+            QCheckBox::indicator:checked {
+                background: #2196F3;
+                border-color: #2196F3;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QSpinBox {
+                padding: 5px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
             }
         """)
         
@@ -236,33 +277,151 @@ class ImageAugmentationApp(QMainWindow):
         self.methods = ["Verschiebung", "Rotation", "Zoom", "Helligkeit", "Unschärfe"]
         self.method_checkboxes = []
         self.method_levels = {}
-
+        
+        # Method group styling
+        method_group_style = """
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding: 15px;
+                background: white;
+            }
+            QCheckBox {
+                spacing: 5px;
+                color: #333;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QCheckBox::indicator {
+                width: 25px;
+                height: 25px;
+                border-radius: 12px;
+                border: 2px solid #ddd;
+                background: white;
+            }
+            QCheckBox::indicator:checked {
+                background: #2196F3;
+                border-color: #2196F3;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                padding: 8px;
+                font-weight: bold;
+                margin-left: 10px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QSpinBox {
+                padding: 5px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: white;
+                min-width: 60px;
+            }
+            QSpinBox:hover {
+                border-color: #2196F3;
+            }
+        """
+        self.method_group.setStyleSheet(method_group_style)
+        
+        # Create method boxes
         for method in self.methods:
+            # Create method container
+            method_box = QGroupBox()
+            method_layout = QVBoxLayout(method_box)
+            method_layout.setContentsMargins(5, 5, 5, 5)
+
+            # Header layout with checkbox and info button
+            header_layout = QHBoxLayout()
             checkbox = QCheckBox(method)
             checkbox.stateChanged.connect(self.update_expected_count)
             self.method_checkboxes.append(checkbox)
-            self.method_layout.addWidget(checkbox)
-            
+
+            # Info button
+            info_btn = QPushButton("ℹ")
+            info_btn = QPushButton("ℹ️")
+            info_btn.setFixedSize(32, 32)
+            info_btn.clicked.connect(lambda checked, m=method: self.show_method_info(m))
+
+            header_layout.addWidget(checkbox)
+            header_layout.addWidget(info_btn)
+            header_layout.addStretch()
+            method_layout.addLayout(header_layout)
+
+            # Level controls
             level_layout = QHBoxLayout()
+            level_layout.setContentsMargins(10, 0, 0, 0)  # Indent levels
+            level_layout.setContentsMargins(10, 5, 10, 5)
             level_label1 = QLabel("Stufe 1:")
             level_label2 = QLabel("Stufe 2:")
+
             level_spinbox1 = QSpinBox()
             level_spinbox2 = QSpinBox()
             level_spinbox1.setRange(1, 100)
             level_spinbox2.setRange(1, 100)
+
             level_layout.addWidget(level_label1)
             level_layout.addWidget(level_spinbox1)
             level_layout.addWidget(level_label2)
             level_layout.addWidget(level_spinbox2)
-            self.method_layout.addLayout(level_layout)
+            level_layout.addStretch()
+            method_layout.addLayout(level_layout)
 
+            # Add container to main layout
+            self.method_layout.addWidget(method_box)
+            
+            # Style the method box
+            method_box.setStyleSheet("""
+                QGroupBox {
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    margin-top: 10px;
+                    background: white;
+                }
+                QGroupBox:hover {
+                    border-color: #2196F3;
+                }
+            """)
+
+            # Store references for later use
             method_key = self.get_method_key(method)
             self.method_levels[method_key] = (checkbox, level_spinbox1, level_spinbox2)
 
-        # Add horizontal flip checkbox separately without levels
-        self.flip_checkbox = QCheckBox("Horizontal Spiegeln")
-        self.flip_checkbox.stateChanged.connect(self.update_expected_count)
-        self.method_layout.addWidget(self.flip_checkbox)
+        # Add flip controls in a separate group box
+        flip_box = QGroupBox()
+        flip_layout = QVBoxLayout(flip_box)
+        
+        # Horizontal flip
+        self.horizontal_flip = QCheckBox("Horizontal Spiegeln")
+        self.horizontal_flip.stateChanged.connect(self.update_expected_count)
+        flip_layout.addWidget(self.horizontal_flip)
+        
+        # Vertical flip
+        self.vertical_flip = QCheckBox("Vertikal Spiegeln")
+        self.vertical_flip.stateChanged.connect(self.update_expected_count)
+        flip_layout.addWidget(self.vertical_flip)
+        
+        # Style flip box
+        flip_box.setStyleSheet("""
+            QGroupBox {
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding: 10px;
+                background: white;
+            }
+            QGroupBox:hover {
+                border-color: #2196F3;
+            }
+        """)
+        
+        self.method_layout.addWidget(flip_box)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -280,6 +439,175 @@ class ImageAugmentationApp(QMainWindow):
         # Paths
         self.source_path = None
         self.dest_path = None
+
+    def setup_augmentation_methods(self):
+        """Set up augmentation method controls."""
+
+        for method in self.methods:
+            checkbox = QCheckBox(method)
+            checkbox.stateChanged.connect(self.update_expected_count)
+            self.method_checkboxes.append(checkbox)
+            self.method_layout.addWidget(checkbox)
+
+            level_layout = QHBoxLayout()
+            level_label1 = QLabel("Stufe 1:")
+            level_label2 = QLabel("Stufe 2:")
+            
+            # Create and style info button
+            info_btn = QPushButton("ℹ")
+            info_btn.setFixedSize(32, 32)
+            info_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2196F3;
+                    color: white;
+                    border-radius: 14px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    margin: 0 8px;
+                }
+                QPushButton:hover {
+                    background-color: #1976D2;
+                }
+            """)
+            info_btn.clicked.connect(lambda checked, m=method: self.show_method_info(m))
+            
+            level_spinbox1 = QSpinBox()
+            level_spinbox2 = QSpinBox()
+            level_spinbox1.setRange(1, 100)
+            level_spinbox2.setRange(1, 100)
+            
+            # Style spinboxes
+            spinbox_style = """
+                QSpinBox {
+                    padding: 5px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    background: white;
+                    min-width: 60px;
+                }
+                QSpinBox:hover {
+                    border-color: #2196F3;
+                }
+            """
+            level_spinbox1.setStyleSheet(spinbox_style)
+            level_spinbox2.setStyleSheet(spinbox_style)
+            
+            level_layout.addWidget(level_label1)
+            level_layout.addWidget(level_spinbox1)
+            level_layout.addWidget(level_label2)
+            level_layout.addWidget(level_spinbox2)
+            level_layout.addWidget(info_btn)
+            level_layout.addStretch()
+            self.method_layout.addLayout(level_layout)
+            
+            method_key = self.get_method_key(method)
+            self.method_levels[method_key] = (checkbox, level_spinbox1, level_spinbox2)
+
+    def show_method_info(self, method):
+        """Show detailed information about augmentation method parameters."""
+        info = {
+            "Verschiebung": """Verschiebung des Bildes in X- und Y-Richtung
+                
+                Level 1: Minimaler Verschiebungsfaktor
+                Level 2: Maximaler Verschiebungsfaktor
+                
+                Beispiel:
+                Level 1 = 10, Level 2 = 30 bedeutet:
+                - Zufällige Verschiebung zwischen 10% und 30% der Bildgröße in beide Richtungen
+                - Die Richtung (positiv/negativ) wird zufällig gewählt
+                
+                Implementierung:
+                1. Berechne Verschiebungsfaktoren zwischen Level 1 und 2
+                2. Wähle zufällig positive oder negative Richtung
+                3. Wende Verschiebung auf das Bild an
+            """,
+            "Rotation": """Rotation des Bildes um seinen Mittelpunkt
+                
+                Level 1: Minimaler Rotationswinkel (% von 360°)
+                Level 2: Maximaler Rotationswinkel (% von 360°)
+                
+                Beispiel:
+                Level 1 = 10, Level 2 = 45 bedeutet:
+                - Zufällige Rotation zwischen 36° und 162°
+                - Berechnung: Level × 360° / 100
+                
+                Implementierung:
+                1. Berechne Winkelbereich aus Levels (Level × 360° / 100)
+                2. Wähle zufälligen Winkel aus diesem Bereich
+                3. Rotiere Bild und Boxen um Mittelpunkt
+            """,
+            "Zoom": """Skalierung des Bildes (Vergrößerung)
+                
+                Level 1: Minimale Vergrößerung (%)
+                Level 2: Maximale Vergrößerung (%)
+                
+                Beispiel:
+                Level 1 = 10, Level 2 = 50 bedeutet:
+                - Zufällige Vergrößerung zwischen 110% und 150%
+                - Berechnung: 1.0 + (Level/100)
+                
+                Implementierung:
+                1. Berechne Skalierungsfaktoren (1.0 + Level/100)
+                2. Wähle zufälligen Faktor zwischen Level 1 und 2
+                3. Skaliere Bild und passe Boxen an
+            """,
+            "Helligkeit": """Anpassung der Bildhelligkeit
+                
+                Level 1: Minimale Helligkeitsänderung (%)
+                Level 2: Maximale Helligkeitsänderung (%)
+                
+                Beispiel:
+                Level 1 = 10, Level 2 = 30 bedeutet:
+                - Zufällige Helligkeitsänderung zwischen 10% und 30%
+                - Die Richtung (heller/dunkler) wird zufällig gewählt
+                
+                Implementierung:
+                1. Wähle zufälligen Faktor zwischen Level 1 und 2
+                2. Wähle zufällig positive oder negative Änderung
+                3. Passe Bildhelligkeit entsprechend an
+            """,
+            "Unschärfe": """Gaussian Blur (Weichzeichnen) des Bildes
+                
+                Level 1: Minimale Unschärfe (%)
+                Level 2: Maximale Unschärfe (%)
+                
+                Beispiel:
+                Level 1 = 10, Level 2 = 30 bedeutet:
+                - Zufällige Unschärfe mit Radius zwischen 0.1 und 0.3 Pixel
+                - Berechnung: Level/100 Pixel Radius
+                
+                Implementierung:
+                1. Berechne Blur-Radius aus Level (Level/100)
+                2. Wende Gaussian Blur mit diesem Radius an
+            """
+        }
+        
+        # Show info in a styled message box
+        msg = QMessageBox()
+        msg.setWindowTitle(f"Info: {method}")
+        msg.setText(info.get(method, "Keine Info verfügbar"))
+        msg.setStyleSheet("""
+            QMessageBox {
+                background-color: white;
+            }
+            QMessageBox QLabel {
+                color: #333;
+                font-size: 14px;
+                min-width: 700px;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        msg.exec()
 
     def show_settings(self):
         """Show settings dialog."""
@@ -370,8 +698,10 @@ class ImageAugmentationApp(QMainWindow):
             for _ in selected_methods:
                 combinations += 2
 
-            # If horizontal flip is enabled, add 50% more combinations
-            if self.flip_checkbox.isChecked():
+            # Add combinations for flips
+            if self.horizontal_flip.isChecked():
+                combinations = int(combinations * 1.5)  # 50% more combinations
+            if self.vertical_flip.isChecked():
                 combinations = int(combinations * 1.5)  # 50% more combinations
 
             total_augmentations = len(image_files) * combinations 
@@ -486,22 +816,31 @@ class ImageAugmentationApp(QMainWindow):
                                 min_size=self.settings.get('min_size', 20))
                             output_suffix.append(f"{method}_L2")
 
-                    # Apply horizontal flip if enabled (50% chance)
-                    if self.flip_checkbox.isChecked() and np.random.random() < 0.5:
+                    # Apply flips if enabled (50% chance each)
+                    if self.horizontal_flip.isChecked() and np.random.random() < 0.5:
                         augmented = True
                         augmented_image, augmented_boxes = augment_image_with_boxes(
                             augmented_image, augmented_boxes, "HorizontalFlip", 0, 0,
                             min_visibility=self.settings.get('min_visibility', 0.3),
                             min_size=self.settings.get('min_size', 20))
-                        output_suffix.append("Flipped")
-                        # Skip if no valid boxes remain after augmentation
-                        if not augmented_boxes and boxes:  # Only count as invalid if original had boxes
-                            valid_augmentation = False
-                            invalid_augmentations += 1
-                            break
+                        output_suffix.append("HFlip")
+                        
+                    if self.vertical_flip.isChecked() and np.random.random() < 0.5:
+                        augmented = True
+                        augmented_image, augmented_boxes = augment_image_with_boxes(
+                            augmented_image, augmented_boxes, "VerticalFlip", 0, 0,
+                            min_visibility=self.settings.get('min_visibility', 0.3),
+                            min_size=self.settings.get('min_size', 20))
+                        output_suffix.append("VFlip")
+                    
+                    # Skip if no valid boxes remain after augmentation
+                    if not augmented_boxes and boxes:  # Only count as invalid if original had boxes
+                        valid_augmentation = False
+                        invalid_augmentations += 1
+                        break
 
-                        # Show preview of augmented image
-                        if augmented_image is not None:
+                    # Show preview of augmented image if enabled
+                    if self.preview_checkbox.isChecked() and augmented_image is not None:
                             # Convert to RGB for Qt
                             preview_img = cv2.cvtColor(augmented_image, cv2.COLOR_BGR2RGB)
                             

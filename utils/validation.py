@@ -5,6 +5,7 @@ import yaml
 import torch
 from pathlib import Path 
 import logging
+import traceback
 # Disable debug logging for validation
 logging.getLogger().setLevel(logging.WARNING)
 
@@ -144,32 +145,47 @@ def check_gpu() -> Tuple[bool, str]:
         Tuple[bool, str]: (gpu_available, message)
     """
     try:
+        # Check PyTorch version
+        torch_version = torch.__version__
+        
         # Check CUDA environment variables
         cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
         if cuda_visible == '-1':
             return False, "CUDA ist durch Umgebungsvariable deaktiviert"
 
         # Check if CUDA is available
-        if not torch.cuda.is_available():
-            # Try to get more diagnostic information
-            import subprocess
-            try:
-                return False, "CUDA nicht verfügbar. Training wird CPU nutzen (langsam)."
-            except:
-                return False, "Keine NVIDIA GPU oder Treiber gefunden. Training wird CPU nutzen (langsam)."
+        cuda_available = torch.cuda.is_available()
+        if not cuda_available:
+            return False, (
+                f"CUDA nicht verfügbar.\n"
+                f"PyTorch Version: {torch_version}\n"
+                f"CUDA_VISIBLE_DEVICES: {cuda_visible}\n"
+                "Training wird CPU nutzen (langsam)."
+            )
 
         # Try to initialize CUDA to force detection
         torch.cuda.init()
         
         # Get device information
         gpu_name = torch.cuda.get_device_name(0)
+        gpu_count = torch.cuda.device_count()
         memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
         cuda_version = torch.version.cuda
-        message = f"GPU gefunden: {gpu_name} ({memory:.1f}GB)\nCUDA Version: {cuda_version}"
+        message = (
+            f"GPU gefunden: {gpu_name} ({memory:.1f}GB)\n"
+            f"Anzahl GPUs: {gpu_count}\n"
+            f"CUDA Version: {cuda_version}\n"
+            f"PyTorch Version: {torch_version}\n"
+            f"CUDA_VISIBLE_DEVICES: {cuda_visible}"
+        )
         return True, message
         
     except Exception as e:
-        error_msg = (f"Fehler bei GPU-Erkennung: {str(e)}\n"
-                    f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'nicht gesetzt')}\n"
-                    f"PyTorch CUDA verfügbar: {torch.cuda.is_available()}")
+        error_msg = (
+            f"Fehler bei GPU-Erkennung: {str(e)}\n"
+            f"PyTorch Version: {torch_version}\n"
+            f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'nicht gesetzt')}\n"
+            f"PyTorch CUDA verfügbar: {torch.cuda.is_available()}\n"
+            f"Traceback:\n{traceback.format_exc()}"
+        )
         return False, error_msg

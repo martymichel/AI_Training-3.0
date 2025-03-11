@@ -1,14 +1,51 @@
 # image_labeling.py
 import sys, os, shutil
+import cv2
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
     QGraphicsRectItem, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFileDialog, QListWidget, QListWidgetItem, QMessageBox, QInputDialog,
     QScrollArea
 )
-from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer
+from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush, QPainter
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer, QPoint
 import utils.labeling_utils as utils
+
+# -------------------------------
+# Zoomable Graphics View
+# -------------------------------
+class ZoomableGraphicsView(QGraphicsView):
+    def __init__(self, scene, parent=None):
+        super().__init__(scene, parent)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.zoom_factor = 1.15
+        
+    def wheelEvent(self, event):
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            # Store the scene pos
+            old_pos = self.mapToScene(event.position().toPoint())
+            
+            # Zoom
+            if event.angleDelta().y() > 0:
+                factor = self.zoom_factor
+            else:
+                factor = 1.0 / self.zoom_factor
+            self.scale(factor, factor)
+            
+            # Get the new position
+            new_pos = self.mapToScene(event.position().toPoint())
+            
+            # Move scene to old position
+            delta = new_pos - old_pos
+            self.translate(delta.x(), delta.y())
+        else:
+            super().wheelEvent(event)
 
 # -------------------------------
 # Resizable Bounding Box Item
@@ -16,14 +53,10 @@ import utils.labeling_utils as utils
 class ResizableRectItem(QGraphicsRectItem):
     def __init__(self, rect, class_id, parent=None):
         super().__init__(rect, parent)
-        self.initial_rect = rect
         self.scene_ref = None  # Reference to scene for updating annotations
         self.class_id = class_id
         self.handles = []
-        self.handle_size = QSizeF(10.0, 10.0)
-        self.resize_handle = None
-        self.is_resizing = False
-        self.is_moving = False
+        self.handle_size = QSizeF(20.0, 20.0)  # Larger handles for easier grabbing
         self.setFlags(
             QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable |
@@ -61,21 +94,18 @@ class ResizableRectItem(QGraphicsRectItem):
     def mousePressEvent(self, event):
         """Handle mouse press events for resizing."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.initial_rect = self.rect()
             pos = event.pos()
             # Check if we clicked on a handle
             for i, handle in enumerate(self.handles):
                 if (pos - handle).manhattanLength() < 10:
                     self.setSelected(True)
                     self.resize_handle = i
-                    self.is_resizing = True
                     return
-            self.is_moving = True
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """Handle mouse move events for resizing."""
-        if self.is_resizing and self.resize_handle is not None:
+        if hasattr(self, 'resize_handle'):
             pos = event.pos()
             rect = self.rect()
             if self.resize_handle == 0:  # Top-left
@@ -89,30 +119,27 @@ class ResizableRectItem(QGraphicsRectItem):
             self.setRect(rect.normalized())
             self.updateHandles()
             return
-        elif self.is_moving:
-            super().mouseMoveEvent(event)
-            self.scene().update()
-            return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         """Handle mouse release events."""
-        if self.is_resizing or self.is_moving:
-            self.is_resizing = False
-            self.is_moving = False
-            self.resize_handle = None
+        if hasattr(self, 'resize_handle'):
+            # Store position after resize
+            del self.resize_handle
             self.store_position()
         super().mouseReleaseEvent(event)
 
     def store_position(self):
         """Store the current position and dimensions."""
         if hasattr(self, 'scene_ref') and self.scene_ref and isinstance(self.scene_ref, ImageScene):
-            self.scene_ref.store_item_changes()
+            QTimer.singleShot(0, self.scene_ref.store_item_changes)
 
     def itemChange(self, change, value):
         """Handle item changes to prevent trailing effect."""
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
+            # Store position after move
             self.scene().update()  # Force scene update to prevent trailing
+            self.store_position()
         return super().itemChange(change, value)
 
 # -------------------------------
@@ -121,7 +148,6 @@ class ResizableRectItem(QGraphicsRectItem):
 class ImageScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.current_item = None
         self.main_window = None  # Reference to main window for storing annotations
         self.drawing = False
         self.start = QPointF()
@@ -131,13 +157,6 @@ class ImageScene(QGraphicsScene):
         self.current_class = 0
 
     def mousePressEvent(self, event):
-        # If we clicked on an existing item, let it handle the event
-        item = self.itemAt(event.scenePos(), self.views()[0].transform())
-        if item and isinstance(item, ResizableRectItem):
-            self.current_item = item
-            super().mousePressEvent(event)
-            return
-
         if event.button() == Qt.MouseButton.LeftButton:
             self.drawing = True
             self.start = event.scenePos()
@@ -148,30 +167,23 @@ class ImageScene(QGraphicsScene):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.current_item:
-            super().mouseMoveEvent(event)
-            return
-
         if self.drawing and self.temp_rect:
             rect = QRectF(self.start, event.scenePos()).normalized()
             self.temp_rect.setRect(rect)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self.current_item:
-            self.current_item = None
-            super().mouseReleaseEvent(event)
-            return
-
         if event.button() == Qt.MouseButton.LeftButton and self.drawing:
             self.drawing = False
             final_rect = self.temp_rect.rect()
             if final_rect.width() < self.min_size or final_rect.height() < self.min_size:
                 self.removeItem(self.temp_rect)
             else:
+                # Create resizable rect item with proper parameters
                 self.removeItem(self.temp_rect)
                 rect_item = ResizableRectItem(final_rect, self.current_class, None)
-                rect_item.setPen(QPen(self.current_color, 2))
+                pen = QPen(self.current_color, 2)
+                rect_item.setPen(pen)
                 rect_item.scene_ref = self  # Set scene reference
                 self.addItem(rect_item)
                 self.store_item_changes()  # Store initial box position
@@ -181,7 +193,12 @@ class ImageScene(QGraphicsScene):
     def store_item_changes(self):
         """Store current annotations when boxes change."""
         if self.main_window:
-            self.main_window.store_annotations()
+            # Use QTimer to avoid multiple rapid saves
+            if not hasattr(self, '_save_timer'):
+                self._save_timer = QTimer()
+                self._save_timer.setSingleShot(True)
+                self._save_timer.timeout.connect(self.main_window.store_annotations)
+            self._save_timer.start(100)  # Wait 100ms before saving
 
 # -------------------------------
 # Hauptapplikation
@@ -220,7 +237,7 @@ class ImageLabelingApp(QMainWindow):
         # QGraphicsView setup
         self.scene = ImageScene()
         self.scene.main_window = self  # Set main window reference
-        self.view = QGraphicsView(self.scene)
+        self.view = ZoomableGraphicsView(self.scene)
         self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         main_layout.addWidget(self.view, stretch=4)
 
@@ -269,11 +286,9 @@ class ImageLabelingApp(QMainWindow):
                 padding: 8px;
                 margin: 2px;
                 border-radius: 4px;
-                border: 2px solid transparent;
             }
             QListWidget::item:selected {
-                background-color: rgba(255, 255, 255, 0.5);
-                border: 2px solid currentColor;
+                background-color: rgba(0, 0, 0, 0.1);
             }
         """)
         scroll = QScrollArea()
@@ -392,14 +407,15 @@ class ImageLabelingApp(QMainWindow):
     def update_class_list(self):
         """Aktualisiert die Anzeige der Klassenliste mit doppelter, fetter Schrift und farbigem Hintergrund."""
         self.class_list.clear()
-        font = QFont("Arial", 11, QFont.Weight.Bold)
+        font = QFont("Arial", 12, QFont.Weight.Bold)
         for idx, (name, color) in enumerate(self.classes):
             item = QListWidgetItem(name)
             item.setFont(font)
-            # Set background with proper opacity
-            item.setBackground(QBrush(QColor(color.red(), color.green(), color.blue(), 40)))
-            # Set text color to match class color
-            item.setForeground(QBrush(color))
+            # Create a semi-transparent version of the color for better readability
+            bg_color = QColor(color)
+            bg_color.setAlpha(40)  # 40% opacity
+            item.setBackground(QBrush(bg_color))
+            item.setForeground(QBrush(color.darker(150)))  # Darker text color
             self.class_list.addItem(item)
 
     def choose_source_dir(self):
@@ -430,23 +446,35 @@ class ImageLabelingApp(QMainWindow):
         self.scene.clear()
         if self.current_index < 0 or self.current_index >= len(self.image_files):
             return
+            
         image_path = self.image_files[self.current_index]
         pixmap = QPixmap(image_path)
         if pixmap.isNull():
             QMessageBox.warning(self, "Fehler", f"Bild {image_path} konnte nicht geladen werden.")
             return
+            
+        img_width = pixmap.width()
+        img_height = pixmap.height()
         self.scene.setSceneRect(0, 0, pixmap.width(), pixmap.height())
         self.scene.addPixmap(pixmap)
         self.lbl_image_info.setText(f"Bild {self.current_index+1}/{len(self.image_files)}: {os.path.basename(image_path)}")
+        
         # Vorhandene Annotationen wieder einfügen
         if image_path in self.annotations:
             for ann in self.annotations[image_path]:
-                class_id, x_min, y_min, x_max, y_max = ann
+                # Convert normalized coordinates back to pixel values
+                class_id, x_center, y_center, width, height = ann
+                x_min = (x_center - width/2) * img_width
+                y_min = (y_center - height/2) * img_height
+                box_width = width * img_width
+                box_height = height * img_height
+                
                 if class_id < len(self.classes):
                     color = self.classes[class_id][1]
                 else:
                     color = QColor("black")
-                rect = QRectF(x_min, y_min, x_max - x_min, y_max - y_min)
+                    
+                rect = QRectF(x_min, y_min, box_width, box_height)
                 box = ResizableRectItem(rect, class_id)
                 box.scene_ref = self.scene  # Set scene reference
                 pen = QPen(color, 2)
@@ -501,7 +529,8 @@ class ImageLabelingApp(QMainWindow):
             "N: Nächstes Bild\n"
             "P: Vorheriges Bild\n"
             "K: Kopiere Annotationen vom vorherigen Bild\n"
-            "Entf/Backspace: Löscht ausgewählte Box\n\n"
+            "Entf/Backspace: Löscht ausgewählte Box\n"
+            "Strg + Mausrad: Zoom in/out\n\n"
             "Zusätzlich:\n"
             "- Mit den Buttons in der Seitenleiste kann zwischen den Bildern gewechselt werden.\n"
             "- Mit 'Klasse hinzufügen' werden Klassen erstellt, denen automatisch eine Hintergrundfarbe aus einer vordefinierten Palette zugewiesen wird.\n"
@@ -531,17 +560,30 @@ class ImageLabelingApp(QMainWindow):
     def store_annotations(self):
         """Speichert die aktuellen Annotationen des angezeigten Bildes."""
         image_path = self.image_files[self.current_index]
-        if not image_path:
+        image = cv2.imread(image_path)
+        if image is None:
             return
-            
+        
+        img_height, img_width = image.shape[:2]
         ann_list = []
+        
         for item in self.scene.items():
             if isinstance(item, ResizableRectItem):
                 r = item.rect()
-                pos = item.scenePos()
-                x = pos.x() + r.x()
-                y = pos.y() + r.y()
-                ann_list.append((item.class_id, x, y, x + r.width(), y + r.height()))
+                # Convert to YOLO format (normalized)
+                x_center = (r.x() + r.width()/2) / img_width
+                y_center = (r.y() + r.height()/2) / img_height
+                width = r.width() / img_width
+                height = r.height() / img_height
+                
+                # Ensure values are within valid range
+                x_center = max(0.0, min(1.0, x_center))
+                y_center = max(0.0, min(1.0, y_center))
+                width = max(0.0, min(1.0, width))
+                height = max(0.0, min(1.0, height))
+                
+                ann_list.append((item.class_id, x_center, y_center, width, height))
+        
         self.annotations[image_path] = ann_list
 
     def next_image(self):
@@ -576,17 +618,19 @@ class ImageLabelingApp(QMainWindow):
         if not self.dest_dir:
             QMessageBox.warning(self, "Fehler", "Bitte wählen Sie zuerst ein Zielverzeichnis!")
             return
+            
         self.store_annotations()
+        
         for image_path in self.image_files:
             base = os.path.splitext(os.path.basename(image_path))[0]
             txt_file = os.path.join(self.dest_dir, base + ".txt")
-            pixmap = QPixmap(image_path)
-            if pixmap.isNull():
-                continue
-            img_width, img_height = pixmap.width(), pixmap.height()
             ann_list = self.annotations.get(image_path, [])
             if ann_list:
-                utils.save_yolo_labels(txt_file, ann_list, img_width, img_height)
+                # Annotations are already normalized, save directly
+                with open(txt_file, 'w') as f:
+                    for cls_id, x_center, y_center, width, height in ann_list:
+                        f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+            
             dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
             try:
                 shutil.copy(image_path, dest_image)
