@@ -1,1 +1,5 @@
+<<<<<<< Updated upstream
 {"min_visibility": 0.5, "min_size": 30, "max_shift": 50, "max_rotation": 45}
+=======
+{"min_visibility": 0.3, "min_size": 20, "max_shift": 50, "max_rotation": 45}
+>>>>>>> Stashed changes

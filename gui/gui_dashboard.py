@@ -245,7 +245,7 @@ class DashboardWindow(QMainWindow):
             epochs = df["epoch"]
 
             def setup_axis(ax):
-                ax.set_xlim(0, self.total_epochs)
+                ax.set_xlim(0, max(101, int(df['epoch'].max()) + 1))
                 ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
             # Entferne alte Info-Icons
@@ -253,23 +253,37 @@ class DashboardWindow(QMainWindow):
                 annot.remove()
             self.info_annotations = []
 
-            # Für jeden Subplot: Plot aktualisieren und Info-Icon hinzufügen.
-
             # [0,0]: Box Loss
             ax = self.axes[0, 0]
             ax.cla()
             if "train/box_loss" in df.columns:
                 ax.plot(epochs, df["train/box_loss"], label="Train Box Loss", color='blue')
+                min_loss_idx = df["train/box_loss"].idxmin()
+                best_epoch = df["epoch"].iloc[min_loss_idx]
+                best_value = df["train/box_loss"].min()
+                ax.annotate(f'Best: {best_value:.4f}\nEpoch: {best_epoch}', xy=(best_epoch, best_value), 
+                            xytext=(best_epoch, best_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='blue'),
+                            color='blue', fontsize=9, ha='center')
             else:
                 ax.text(0.5, 0.5, "Train Box Loss fehlt", ha="center", va="center", transform=ax.transAxes)
             if "val/box_loss" in df.columns:
                 ax.plot(epochs, df["val/box_loss"], label="Val Box Loss", color='orange')
+                min_val_loss_idx = df["val/box_loss"].idxmin()
+                best_val_epoch = df["epoch"].iloc[min_val_loss_idx]
+                best_val_value = df["val/box_loss"].min()
+                ax.annotate(f'Best: {best_val_value:.4f}\nEpoch: {best_val_epoch}', xy=(best_val_epoch, best_val_value), 
+                            xytext=(best_val_epoch, best_val_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='orange'),
+                            color='orange', fontsize=9, ha='center')
             ax.set_title("Box Loss")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Loss")
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
@@ -282,16 +296,32 @@ class DashboardWindow(QMainWindow):
             ax.cla()
             if "train/cls_loss" in df.columns:
                 ax.plot(epochs, df["train/cls_loss"], label="Train Class Loss", color='blue')
+                min_cls_loss_idx = df["train/cls_loss"].idxmin()
+                best_cls_epoch = df["epoch"].iloc[min_cls_loss_idx]
+                best_cls_value = df["train/cls_loss"].min()
+                ax.annotate(f'Best: {best_cls_value:.4f}\nEpoch: {best_cls_epoch}', xy=(best_cls_epoch, best_cls_value), 
+                            xytext=(best_cls_epoch, best_cls_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='blue'),
+                            color='blue', fontsize=9, ha='center')
             else:
                 ax.text(0.5, 0.5, "Train Class Loss fehlt", ha="center", va="center", transform=ax.transAxes)
             if "val/cls_loss" in df.columns:
                 ax.plot(epochs, df["val/cls_loss"], label="Val Class Loss", color='orange')
+                min_val_cls_loss_idx = df["val/cls_loss"].idxmin()
+                best_val_cls_epoch = df["epoch"].iloc[min_val_cls_loss_idx]
+                best_val_cls_value = df["val/cls_loss"].min()
+                ax.annotate(f'Best: {best_val_cls_value:.4f}\nEpoch: {best_val_cls_epoch}', xy=(best_val_cls_epoch, best_val_cls_value), 
+                            xytext=(best_val_cls_epoch, best_val_cls_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='orange'),
+                            color='orange', fontsize=9, ha='center')
             ax.set_title("Class Loss")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Loss")
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
@@ -304,16 +334,32 @@ class DashboardWindow(QMainWindow):
             ax.cla()
             if "metrics/precision(B)" in df.columns:
                 ax.plot(epochs, df["metrics/precision(B)"], label="Precision", color='green')
+                max_precision_idx = df["metrics/precision(B)"].idxmax()
+                best_precision_epoch = df["epoch"].iloc[max_precision_idx]
+                best_precision_value = df["metrics/precision(B)"].max()
+                ax.annotate(f'Best: {best_precision_value:.2f}\nEpoch: {best_precision_epoch}', xy=(best_precision_epoch, best_precision_value), 
+                            xytext=(best_precision_epoch, best_precision_value + 0.02),
+                            arrowprops=dict(arrowstyle='->', color='green'),
+                            color='green', fontsize=9, ha='center')
             else:
                 ax.text(0.5, 0.5, "Precision fehlt", ha="center", va="center", transform=ax.transAxes)
             if "metrics/recall(B)" in df.columns:
                 ax.plot(epochs, df["metrics/recall(B)"], label="Recall", color='red')
+                max_recall_idx = df["metrics/recall(B)"].idxmax()
+                best_recall_epoch = df["epoch"].iloc[max_recall_idx]
+                best_recall_value = df["metrics/recall(B)"].max()
+                ax.annotate(f'Best: {best_recall_value:.2f}\nEpoch: {best_recall_epoch}', xy=(best_recall_epoch, best_recall_value), 
+                            xytext=(best_recall_epoch, best_recall_value + 0.02),
+                            arrowprops=dict(arrowstyle='->', color='red'),
+                            color='red', fontsize=9, ha='center')
             ax.set_title("Precision & Recall")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Score")
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
@@ -326,16 +372,32 @@ class DashboardWindow(QMainWindow):
             ax.cla()
             if "metrics/mAP50(B)" in df.columns:
                 ax.plot(epochs, df["metrics/mAP50(B)"], label="mAP50", color='purple')
+                max_mAP50_idx = df["metrics/mAP50(B)"].idxmax()
+                best_mAP50_epoch = df["epoch"].iloc[max_mAP50_idx]
+                best_mAP50_value = df["metrics/mAP50(B)"].max()
+                ax.annotate(f'Best: {best_mAP50_value:.2f}\nEpoch: {best_mAP50_epoch}', xy=(best_mAP50_epoch, best_mAP50_value), 
+                            xytext=(best_mAP50_epoch, best_mAP50_value + 0.02),
+                            arrowprops=dict(arrowstyle='->', color='purple'),
+                            color='purple', fontsize=9, ha='center')
             else:
                 ax.text(0.5, 0.5, "mAP50 fehlt", ha="center", va="center", transform=ax.transAxes)
             if "metrics/mAP50-95(B)" in df.columns:
                 ax.plot(epochs, df["metrics/mAP50-95(B)"], label="mAP50-95", color='brown')
+                max_mAP50_95_idx = df["metrics/mAP50-95(B)"].idxmax()
+                best_mAP50_95_epoch = df["epoch"].iloc[max_mAP50_95_idx]
+                best_mAP50_95_value = df["metrics/mAP50-95(B)"].max()
+                ax.annotate(f'Best: {best_mAP50_95_value:.2f}\nEpoch: {best_mAP50_95_epoch}', xy=(best_mAP50_95_epoch, best_mAP50_95_value), 
+                            xytext=(best_mAP50_95_epoch, best_mAP50_95_value + 0.02),
+                            arrowprops=dict(arrowstyle='->', color='brown'),
+                            color='brown', fontsize=9, ha='center')
             ax.set_title("mAP Scores")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Score")
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
@@ -348,16 +410,32 @@ class DashboardWindow(QMainWindow):
             ax.cla()
             if "train/dfl_loss" in df.columns:
                 ax.plot(epochs, df["train/dfl_loss"], label="Train DFL Loss", color='blue')
+                min_dfl_loss_idx = df["train/dfl_loss"].idxmin()
+                best_dfl_epoch = df["epoch"].iloc[min_dfl_loss_idx]
+                best_dfl_value = df["train/dfl_loss"].min()
+                ax.annotate(f'Best: {best_dfl_value:.4f}\nEpoch: {best_dfl_epoch}', xy=(best_dfl_epoch, best_dfl_value), 
+                            xytext=(best_dfl_epoch, best_dfl_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='blue'),
+                            color='blue', fontsize=9, ha='center')
             else:
                 ax.text(0.5, 0.5, "Train DFL Loss fehlt", ha="center", va="center", transform=ax.transAxes)
             if "val/dfl_loss" in df.columns:
                 ax.plot(epochs, df["val/dfl_loss"], label="Val DFL Loss", color='orange')
+                min_val_dfl_loss_idx = df["val/dfl_loss"].idxmin()
+                best_val_dfl_epoch = df["epoch"].iloc[min_val_dfl_loss_idx]
+                best_val_dfl_value = df["val/dfl_loss"].min()
+                ax.annotate(f'Best: {best_val_dfl_value:.4f}\nEpoch: {best_val_dfl_epoch}', xy=(best_val_dfl_epoch, best_val_dfl_value), 
+                            xytext=(best_val_dfl_epoch, best_val_dfl_value + 0.1),
+                            arrowprops=dict(arrowstyle='->', color='orange'),
+                            color='orange', fontsize=9, ha='center')
             ax.set_title("DFL Loss")
             ax.set_xlabel("Epoch")
             ax.set_ylabel("Loss")
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
@@ -370,6 +448,7 @@ class DashboardWindow(QMainWindow):
             ax.cla()
             if "lr/pg0" in df.columns:
                 ax.plot(epochs, df["lr/pg0"], label="Learning Rate", color='magenta')
+                # Hier könntest du den besten Learning Rate Wert finden und annotieren, wenn relevant
             else:
                 ax.text(0.5, 0.5, "Learning Rate fehlt", ha="center", va="center", transform=ax.transAxes)
             ax.set_title("Learning Rate")
@@ -378,6 +457,8 @@ class DashboardWindow(QMainWindow):
             ax.legend()
             ax.grid(True)
             setup_axis(ax)
+            
+            # Info-Icon hinzufügen
             annot = ax.annotate("ℹ", xy=(0.95, 0.95), xycoords="axes fraction",
                                 fontsize=12, color="blue", weight="bold",
                                 bbox=dict(boxstyle="round,pad=0.3", fc="yellow", ec="black", lw=1),
