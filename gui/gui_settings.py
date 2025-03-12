@@ -77,7 +77,7 @@ class TrainSettingsWindow(QWidget):
         self.imgsz_input = QSpinBox()
         self.imgsz_input.setRange(640, 1280)
         self.imgsz_input.setValue(Config.training.image_size)
-        self.imgsz_input.setToolTip("Größe der Trainingsbilder in Pixeln")
+        self.imgsz_input.setToolTip("Grösse der Trainingsbilder in Pixeln")
         layout.addWidget(self.imgsz_label)
         layout.addWidget(self.imgsz_input)
 
@@ -86,7 +86,7 @@ class TrainSettingsWindow(QWidget):
         self.batch_input.setRange(0.7, 0.99)
         self.batch_input.setDecimals(2)
         self.batch_input.setValue(Config.training.batch)
-        self.batch_input.setToolTip("Batch-Größe als Anteil des verfügbaren Speichers")
+        self.batch_input.setToolTip("Batch-Grösse als Anteil des verfügbaren Speichers")
         layout.addWidget(self.batch_label)
         layout.addWidget(self.batch_input)
 

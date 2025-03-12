@@ -454,7 +454,7 @@ class LiveAnnotationApp(QWidget):
             misannotated_dir="",
             threshold=threshold,
             iou_threshold=iou_threshold,
-            tile_size=128
+            tile_size=256
         )
         self.worker.mosaic_updated.connect(self.update_mosaic)
         self.worker.progress_updated.connect(self.progress_bar.setValue)

@@ -94,8 +94,10 @@ class MainMenu(QMainWindow):
             "Visualisiert und überprüft Bounding Boxen im Datensatz vor dem Training.", QStyle.StandardPixmap.SP_FileDialogInfoView))
         layout.addLayout(row1)
 
+
         layout.addWidget(self.create_button("4. Dataset Splitter (Train/Validation/Test)", self.open_splitter,
             "Teilt den Datensatz in Trainings-, Validierungs- und Testdaten auf.", QStyle.StandardPixmap.SP_DirIcon))
+
 
         # YOLO Trainer & Dashboard nebeneinander
         row2 = QHBoxLayout()
@@ -105,9 +107,16 @@ class MainMenu(QMainWindow):
             "Zeigt Trainingsfortschritt und Modellmetriken.", QStyle.StandardPixmap.SP_ComputerIcon))
         layout.addLayout(row2)
 
-        layout.addWidget(self.create_button("6. Modell-Verifikation / Test-Dataset", self.open_verification,
-            "Überprüft das trainierte Modell mit einem separaten Test-Datensatz.", QStyle.StandardPixmap.SP_FileDialogContentsView))
 
+        # Verifikation & Hyperparameter-Tuning nebeneinander
+        row3 = QHBoxLayout()
+        row3.addWidget(self.create_button("6. Verifikation mit Test-Bildern", self.open_verification,
+            "Überprüft das trainierte Modell mit einem separaten Test-Datensatz.", QStyle.StandardPixmap.SP_FileDialogContentsView))
+        row3.addWidget(self.create_button("Hyperparamteter tuning", self.open_verification,
+            "Berechnet für jede Objektklasse und IoU die optimalen Schwellenwerte (dauert lange!).", QStyle.StandardPixmap.SP_FileDialogContentsView))        
+        layout.addLayout(row3)
+
+        # Live Detection
         layout.addWidget(self.create_button("7. Live Objekterkennung / Kamerastream", self.open_detection,
             "Erkennt Objekte in Echtzeit aus einem Kamerastream.", QStyle.StandardPixmap.SP_MediaPlay))
 
@@ -186,6 +195,14 @@ class MainMenu(QMainWindow):
         if 'verification' not in self.windows:
             self.windows['verification'] = LiveAnnotationApp()
         self.windows['verification'].show()
+
+    """ 
+    # Diese App ist noch nicht implementiert    
+    def open_verification(self):
+        if 'verification' not in self.windows:
+            self.windows['verification'] = LiveAnnotationApp()
+        self.windows['verification'].show()
+    """   
     
     def open_detection(self):
         if 'detection' not in self.windows:
