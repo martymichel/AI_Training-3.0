@@ -46,13 +46,18 @@ class DatasetSplitterApp(QMainWindow):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setMinimumSize(400, 100)
         self.scroll_widget = QWidget()
+        # self.scroll_widget.setMinimumHeight(400)  # Double the height
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
         self.scroll_area.setWidget(self.scroll_widget)
+        self.scroll_area.setWidgetResizable(True)
         self.class_layout.addWidget(self.scroll_area)
         
         self.class_inputs = {}  # Store class input widgets
         self.current_image = None
         self.current_boxes = None
+        
+        # Store best images per class
+        self.class_to_images = {}
         
         # Directory selection
         self.create_directory_group()
@@ -188,16 +193,61 @@ class DatasetSplitterApp(QMainWindow):
             if not classes:
                 raise ValueError("No classes found in label files")
 
-            # Find sample image
-            sample_image, sample_label = self.splitter.find_sample_image(image_files, label_files)
-            if sample_image is None:
-                raise ValueError("Could not find suitable sample image")
+            # Build a mapping of class ID to images containing that class
+            self.class_to_images = {}
+            for class_id in classes:
+                self.class_to_images[class_id] = []
+            
+            # Analyze each label file to find which images contain which classes
+            for img_path, label_path in zip(image_files, label_files):
+                with open(label_path, 'r') as f:
+                    classes_in_image = set()
+                    for line in f:
+                        try:
+                            class_id = int(float(line.strip().split()[0]))
+                            classes_in_image.add(class_id)
+                        except Exception as e:
+                            logging.warning(f"Error parsing line in {label_path}: {e}")
+                
+                # Add this image to all corresponding class lists
+                for class_id in classes_in_image:
+                    if class_id in self.class_to_images:
+                        self.class_to_images[class_id].append((img_path, label_path))
 
-            # Load and display sample image
-            self.current_image, self.current_boxes = self.splitter.load_image_with_boxes(
-                sample_image, sample_label
-            )
-            self.update_preview()
+            # Find best representative image for each class (with the most instances of that class)
+            self.best_images_per_class = {}
+            for class_id, img_pairs in self.class_to_images.items():
+                if not img_pairs:
+                    continue
+                
+                # Count occurrences of this class in each image
+                best_count = 0
+                best_pair = img_pairs[0]  # Default to first image
+                
+                for img_path, label_path in img_pairs:
+                    count = 0
+                    with open(label_path, 'r') as f:
+                        for line in f:
+                            try:
+                                line_class = int(float(line.strip().split()[0]))
+                                if line_class == class_id:
+                                    count += 1
+                            except Exception:
+                                pass
+                    
+                    if count > best_count:
+                        best_count = count
+                        best_pair = (img_path, label_path)
+                
+                self.best_images_per_class[class_id] = best_pair
+
+            # Load default preview (use first class as default)
+            if classes:
+                first_class = min(classes)
+                if first_class in self.best_images_per_class:
+                    img_path, label_path = self.best_images_per_class[first_class]
+                    self.current_image, self.current_boxes = self.splitter.load_image_with_boxes(img_path, label_path)
+                    self.update_preview()
 
             # Create class input fields
             self.create_class_inputs(classes)
@@ -219,7 +269,8 @@ class DatasetSplitterApp(QMainWindow):
             label = QLabel(f"Class {class_id}:")
             input_field = QLineEdit()
             input_field.setPlaceholderText(f"Enter name for class {class_id}")
-            # Highlight on focus instead of text change
+            
+            # Highlight on focus
             input_field.focusInEvent = lambda e, cid=class_id: self.highlight_class(cid)
             input_field.focusOutEvent = lambda e: self.update_preview()
             
@@ -229,7 +280,13 @@ class DatasetSplitterApp(QMainWindow):
             self.class_inputs[class_id] = input_field
 
     def highlight_class(self, class_id):
-        """Highlight boxes of selected class."""
+        """Highlight boxes of selected class and show image containing this class."""
+        # Check if we need to switch to a different image for this class
+        if class_id in self.best_images_per_class:
+            img_path, label_path = self.best_images_per_class[class_id]
+            # Load the image specific to this class
+            self.current_image, self.current_boxes = self.splitter.load_image_with_boxes(img_path, label_path)
+        
         if self.current_image is not None and self.current_boxes is not None:
             img_copy = self.current_image.copy()
             

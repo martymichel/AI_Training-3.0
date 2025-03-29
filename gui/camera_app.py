@@ -1,3 +1,5 @@
+# 1. Task: Bilder aufzeichnen und speichern ("Schnappschuss")
+
 import sys
 import os
 import cv2

@@ -13,6 +13,7 @@ import numpy as np
 import cv2
 import time
 import logging
+import os
 
 class DatasetAnalyzer(QThread):
     """Thread for analyzing dataset."""
@@ -201,6 +202,8 @@ class ThumbnailWidget(QLabel):
 class FullscreenImageViewer(QDialog):
     """Dialog for fullscreen image viewing."""
     
+    image_deleted = pyqtSignal(str)  # Signal emitted when an image is deleted
+    
     def __init__(self, image_paths, current_index, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Image Viewer")
@@ -222,6 +225,22 @@ class FullscreenImageViewer(QDialog):
         self.prev_btn = QPushButton("Previous (←)")
         self.prev_btn.clicked.connect(self.show_previous)
         nav_layout.addWidget(self.prev_btn)
+        
+        # Add delete button
+        self.delete_btn = QPushButton("Delete Image (Del)")
+        self.delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF5252;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #FF1744;
+            }
+        """)
+        self.delete_btn.clicked.connect(self.delete_current_image)
+        nav_layout.addWidget(self.delete_btn)
         
         close_btn = QPushButton("Close (Esc)")
         close_btn.clicked.connect(self.close)
@@ -284,6 +303,52 @@ class FullscreenImageViewer(QDialog):
         if self.current_index < len(self.image_paths) - 1:
             self.current_index += 1
             self.load_current_image()
+    
+    def delete_current_image(self):
+        """Delete current image and its label file, then move to next image."""
+        if self.current_index < 0 or self.current_index >= len(self.image_paths):
+            return
+            
+        image_path = self.image_paths[self.current_index]
+        
+        # Find matching label file
+        label_path = Path(image_path).with_suffix('.txt')
+        if not label_path.exists():
+            # Check in labels directory
+            if 'images' in str(Path(image_path).parent).lower():
+                label_dir = str(Path(image_path).parent).lower().replace('images', 'labels')
+                label_path = Path(label_dir) / f"{Path(image_path).stem}.txt"
+        
+        try:
+            # Delete image file
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                
+            # Delete label file if it exists
+            if label_path.exists():
+                os.remove(label_path)
+            
+            # Emit signal about deleted image
+            self.image_deleted.emit(image_path)
+            
+            # Remove from paths list
+            self.image_paths.pop(self.current_index)
+            
+            # If there are no more images, close the viewer
+            if not self.image_paths:
+                self.close()
+                return
+                
+            # If we deleted the last image, adjust index
+            if self.current_index >= len(self.image_paths):
+                self.current_index = len(self.image_paths) - 1
+                
+            # Load next image
+            self.load_current_image()
+            
+        except Exception as e:
+            logging.error(f"Error deleting files: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to delete files: {str(e)}")
             
     def keyPressEvent(self, event):
         """Handle keyboard navigation."""
@@ -293,6 +358,8 @@ class FullscreenImageViewer(QDialog):
             self.show_previous()
         elif event.key() == Qt.Key.Key_Right:
             self.show_next()
+        elif event.key() == Qt.Key.Key_Delete:
+            self.delete_current_image()
         else:
             super().keyPressEvent(event)
 
@@ -351,7 +418,7 @@ class DatasetViewerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dataset Viewer")
-        self.setWindowState(Qt.WindowState.WindowMaximized)
+        self.setGeometry(100, 100, 1200, 800)
         
         # Initialize UI
         self.init_ui()
@@ -543,12 +610,60 @@ class DatasetViewerApp(QMainWindow):
         if self.current_page < total_pages:
             self.current_page += 1
             self.load_page()
+    
+    def handle_image_deleted(self, image_path):
+        """Update the dataset stats after an image is deleted."""
+        if not self.dataset_stats:
+            return
+        
+        # Convert to Path object for comparison if needed
+        img_path = Path(image_path) if isinstance(image_path, str) else image_path
+        
+        # Update statistics
+        self.dataset_stats['total_images'] -= 1
+        
+        # Check if it was an annotated image
+        if img_path in self.dataset_stats['label_paths']:
+            self.dataset_stats['annotated_images'] -= 1
+            del self.dataset_stats['label_paths'][img_path]
+        else:
+            self.dataset_stats['background_images'] -= 1
+        
+        # Remove from image paths
+        try:
+            self.dataset_stats['image_paths'].remove(img_path)
+        except ValueError:
+            # Handle the case where path objects are different but represent the same file
+            for i, path in enumerate(self.dataset_stats['image_paths']):
+                if str(path) == str(img_path):
+                    self.dataset_stats['image_paths'].pop(i)
+                    break
+        
+        # Update stats display
+        self.update_stats()
+        
+        # If current page is now empty, go to previous page
+        start_idx = (self.current_page - 1) * self.images_per_page
+        if start_idx >= len(self.dataset_stats['image_paths']) and self.current_page > 1:
+            self.current_page -= 1
+        
+        # Reload current page
+        self.load_page()
             
     def show_fullscreen(self, image_path, label_path):
         """Show image in fullscreen."""
         try:
             # Find index of clicked image
-            current_index = self.dataset_stats['image_paths'].index(Path(image_path))
+            img_path = Path(image_path)
+            current_index = -1
+            
+            for i, path in enumerate(self.dataset_stats['image_paths']):
+                if str(path) == str(img_path):
+                    current_index = i
+                    break
+            
+            if current_index == -1:
+                raise ValueError(f"Image not found in dataset: {image_path}")
             
             # Create and show fullscreen viewer
             viewer = FullscreenImageViewer(
@@ -556,6 +671,7 @@ class DatasetViewerApp(QMainWindow):
                 current_index,
                 self
             )
+            viewer.image_deleted.connect(self.handle_image_deleted)
             viewer.exec()
             
         except Exception as e:

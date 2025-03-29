@@ -9,11 +9,11 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSpinBox, QGroupBox, QCheckBox,
     QFileDialog, QProgressBar, QMessageBox, QDoubleSpinBox,
-    QDialog, QFormLayout
+    QDialog, QFormLayout, QStackedWidget
 )
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 import logging
 from utils.augmentation_utils import augment_image_with_boxes
 from itertools import product
@@ -133,9 +133,10 @@ class ImageAugmentationApp(QMainWindow):
 
         # Left panel for settings
         left_panel = QWidget()
-        left_panel.setFixedWidth(400)
+        left_panel.setFixedWidth(380)  # Reduced width
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(10, 10, 10, 10)
+        left_layout.setContentsMargins(8, 8, 8, 8)  # Reduced margins
+        left_layout.setSpacing(4)  # Reduced spacing
         left_panel.setStyleSheet("""
             QWidget {
                 background-color: #f5f5f5;
@@ -144,25 +145,83 @@ class ImageAugmentationApp(QMainWindow):
             QPushButton {
                 background-color: #ffffff;
                 border: 1px solid #ddd;
-                border-radius: 4px;
-                padding: 4px;
-                margin: 4px;
+                border-radius: 3px;
+                padding: 3px;
+                margin: 3px;
             }
             QLabel {
-                padding: 4px;
+                padding: 2px;
             }
         """)
 
         # Right panel for preview
         right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(10, 10, 10, 10)
-
-        # Preview label
+        self.right_layout = QVBoxLayout(right_panel)
+        self.right_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # StackedWidget to switch between processing and preview modes
+        self.stack = QStackedWidget()
+        self.right_layout.addWidget(self.stack)
+        
+        # Page 1: Processing view (during augmentation)
+        processing_widget = QWidget()
+        processing_layout = QVBoxLayout(processing_widget)
+        
+        # Preview label for augmentation process
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setStyleSheet("border: 1px solid #ccc; background-color: black;")
-        right_layout.addWidget(self.preview_label)
+        processing_layout.addWidget(self.preview_label)
+        
+        self.stack.addWidget(processing_widget)
+        
+        # Page 2: Preview panel (during setup)
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_layout.setContentsMargins(5, 5, 5, 5)
+        preview_layout.setSpacing(5)
+        
+        # Title row with minimal height
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(0)
+        title_layout.addWidget(QLabel("<b>Original</b>"), 1)
+        title_layout.addWidget(QLabel("<b>Level 1 Preview</b>"), 1)
+        title_layout.addWidget(QLabel("<b>Level 2 Preview</b>"), 1)
+        preview_layout.addLayout(title_layout)
+        
+        # Preview images row
+        preview_images_layout = QHBoxLayout()
+        preview_images_layout.setContentsMargins(0, 0, 0, 0)
+        preview_images_layout.setSpacing(5)
+        
+        # Original image preview
+        self.original_preview = QLabel()
+        self.original_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.original_preview.setStyleSheet("border: 1px solid #ccc; background-color: black;")
+        self.original_preview.setMinimumHeight(300)
+        
+        # Level 1 preview
+        self.level1_preview = QLabel()
+        self.level1_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.level1_preview.setStyleSheet("border: 1px solid #2196F3; background-color: black;")
+        self.level1_preview.setMinimumHeight(300)
+        
+        # Level 2 preview
+        self.level2_preview = QLabel()
+        self.level2_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.level2_preview.setStyleSheet("border: 1px solid #F44336; background-color: black;")
+        self.level2_preview.setMinimumHeight(300)
+        
+        preview_images_layout.addWidget(self.original_preview, 1)
+        preview_images_layout.addWidget(self.level1_preview, 1)
+        preview_images_layout.addWidget(self.level2_preview, 1)
+        
+        preview_layout.addLayout(preview_images_layout, 1)
+        self.stack.addWidget(preview_widget)
+        
+        # Start with the preview panel
+        self.stack.setCurrentIndex(1)
 
         # Load settings
         self.settings = self.load_settings()
@@ -190,11 +249,11 @@ class ImageAugmentationApp(QMainWindow):
         # Combined count info
         self.count_info = QLabel("Aktuelle Anzahl Bilder: -\nErwartete Anzahl Bilder: -")
         self.count_info.setStyleSheet("""
-            font-size: 14px;
-            padding: 10px;
+            font-size: 13px;
+            padding: 5px;
             background: rgba(33, 150, 243, 0.1);
             border-radius: 5px;
-            margin: 5px;
+            margin: 3px;
             min-height: 0;
         """)
         left_layout.addWidget(self.count_info)
@@ -207,36 +266,45 @@ class ImageAugmentationApp(QMainWindow):
         # Augmentation method selection
         self.method_group = QGroupBox("Augmentierungsmethoden auswählen")
         self.method_layout = QVBoxLayout()
+        self.method_layout.setContentsMargins(4, 4, 4, 4)
+        self.method_layout.setSpacing(3)
         
         # Preview toggle
         preview_layout = QHBoxLayout()
         self.preview_checkbox = QCheckBox("Bild Vorschau anzeigen")
         self.preview_checkbox.setChecked(True)
+        self.preview_checkbox.stateChanged.connect(self.toggle_preview)
         preview_layout.addWidget(self.preview_checkbox)
-        preview_layout.addStretch()
+        
+        # Add "Neue Vorschau" button
+        self.refresh_preview_button = QPushButton("Neue Vorschau")
+        self.refresh_preview_button.clicked.connect(self.generate_preview)
+        self.refresh_preview_button.setEnabled(True)
+        preview_layout.addWidget(self.refresh_preview_button)
+        
         self.method_layout.addLayout(preview_layout)
         
         self.method_group.setLayout(self.method_layout)
         left_layout.addWidget(self.method_group)
         
-        # Update checkbox style
+        # Update checkbox style - SMALLER CHECKBOXES WITH SMALLER RADIUS
         self.method_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold; 
                 border: 1px solid #ddd;
-                border-radius: 8px;
-                margin-top: 2ex;
-                padding: 15px;
+                border-radius: 4px;
+                margin-top: 5px;
+                padding: 8px;
                 background: white;
             }
             QCheckBox {
-                spacing: 5px;
+                spacing: 3px;
                 color: #333;
-                padding: 8px;
-                border: 2px solid #ddd;
-                border-radius: 15px;
+                padding: 5px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
                 background-color: white;
-                margin: 4px;
+                margin: 2px;
                 min-width: 70px;
                 position: relative;
             }
@@ -244,10 +312,10 @@ class ImageAugmentationApp(QMainWindow):
                 border-color: #2196F3;
             }
             QCheckBox::indicator {
-                width: 25px;
-                height: 25px;
-                border-radius: 12px;
-                border: 2px solid #ddd;
+                width: 16px;
+                height: 16px;
+                border-radius: 2px;
+                border: 1px solid #ddd;
                 background: white;
             }
             QCheckBox::indicator:checked {
@@ -258,18 +326,22 @@ class ImageAugmentationApp(QMainWindow):
                 background-color: #2196F3;
                 color: white;
                 border: none;
-                border-radius: 12px;
-                padding: 8px;
+                border-radius: 3px;
+                padding: 5px;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #1976D2;
             }
             QSpinBox {
-                padding: 5px;
+                padding: 3px;
                 border: 1px solid #ddd;
-                border-radius: 4px;
+                border-radius: 3px;
                 background: white;
+            }
+            /* Make the up/down arrows wider */
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 20px; /* Wider buttons */
             }
         """)
         
@@ -283,22 +355,22 @@ class ImageAugmentationApp(QMainWindow):
             QGroupBox {
                 font-weight: bold;
                 border: 1px solid #ddd;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 15px;
+                border-radius: 4px;
+                margin-top: 5px;
+                padding: 8px;
                 background: white;
             }
             QCheckBox {
-                spacing: 5px;
+                spacing: 3px;
                 color: #333;
-                padding: 8px;
+                padding: 5px;
                 font-weight: bold;
             }
             QCheckBox::indicator {
-                width: 25px;
-                height: 25px;
-                border-radius: 12px;
-                border: 2px solid #ddd;
+                width: 16px;
+                height: 16px;
+                border-radius: 2px;
+                border: 1px solid #ddd;
                 background: white;
             }
             QCheckBox::indicator:checked {
@@ -309,23 +381,27 @@ class ImageAugmentationApp(QMainWindow):
                 background-color: #2196F3;
                 color: white;
                 border: none;
-                border-radius: 12px;
-                padding: 8px;
+                border-radius: 3px;
+                padding: 5px;
                 font-weight: bold;
-                margin-left: 10px;
+                margin-left: 5px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
             }
             QSpinBox {
-                padding: 5px;
+                padding: 3px;
                 border: 1px solid #ddd;
-                border-radius: 4px;
+                border-radius: 3px;
                 background: white;
-                min-width: 60px;
+                min-width: 50px;
             }
             QSpinBox:hover {
                 border-color: #2196F3;
+            }
+            /* Make the up/down arrows wider */
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 20px; /* Wider buttons */
             }
         """
         self.method_group.setStyleSheet(method_group_style)
@@ -335,18 +411,19 @@ class ImageAugmentationApp(QMainWindow):
             # Create method container
             method_box = QGroupBox()
             method_layout = QVBoxLayout(method_box)
-            method_layout.setContentsMargins(5, 5, 5, 5)
+            method_layout.setContentsMargins(4, 4, 4, 4)
+            method_layout.setSpacing(2)
 
             # Header layout with checkbox and info button
             header_layout = QHBoxLayout()
             checkbox = QCheckBox(method)
             checkbox.stateChanged.connect(self.update_expected_count)
+            checkbox.stateChanged.connect(self.update_preview)
             self.method_checkboxes.append(checkbox)
 
             # Info button
-            info_btn = QPushButton("ℹ")
             info_btn = QPushButton("ℹ️")
-            info_btn.setFixedSize(32, 32)
+            info_btn.setFixedSize(24, 24)
             info_btn.clicked.connect(lambda checked, m=method: self.show_method_info(m))
 
             header_layout.addWidget(checkbox)
@@ -356,8 +433,8 @@ class ImageAugmentationApp(QMainWindow):
 
             # Level controls
             level_layout = QHBoxLayout()
-            level_layout.setContentsMargins(10, 0, 0, 0)  # Indent levels
-            level_layout.setContentsMargins(10, 5, 10, 5)
+            level_layout.setContentsMargins(5, 0, 0, 0)  # Indent levels
+            level_layout.setSpacing(3)
             level_label1 = QLabel("Stufe 1:")
             level_label2 = QLabel("Stufe 2:")
 
@@ -365,6 +442,12 @@ class ImageAugmentationApp(QMainWindow):
             level_spinbox2 = QSpinBox()
             level_spinbox1.setRange(1, 100)
             level_spinbox2.setRange(1, 100)
+            level_spinbox1.setValue(10)
+            level_spinbox2.setValue(30)
+            
+            # Connect spinboxes to preview update
+            level_spinbox1.valueChanged.connect(self.update_preview)
+            level_spinbox2.valueChanged.connect(self.update_preview)
 
             level_layout.addWidget(level_label1)
             level_layout.addWidget(level_spinbox1)
@@ -380,8 +463,8 @@ class ImageAugmentationApp(QMainWindow):
             method_box.setStyleSheet("""
                 QGroupBox {
                     border: 1px solid #ddd;
-                    border-radius: 8px;
-                    margin-top: 10px;
+                    border-radius: 4px;
+                    margin-top: 3px;
                     background: white;
                 }
                 QGroupBox:hover {
@@ -396,24 +479,28 @@ class ImageAugmentationApp(QMainWindow):
         # Add flip controls in a separate group box
         flip_box = QGroupBox()
         flip_layout = QVBoxLayout(flip_box)
+        flip_layout.setContentsMargins(4, 4, 4, 4)
+        flip_layout.setSpacing(2)
         
         # Horizontal flip
         self.horizontal_flip = QCheckBox("Horizontal Spiegeln")
         self.horizontal_flip.stateChanged.connect(self.update_expected_count)
+        self.horizontal_flip.stateChanged.connect(self.update_preview)
         flip_layout.addWidget(self.horizontal_flip)
         
         # Vertical flip
         self.vertical_flip = QCheckBox("Vertikal Spiegeln")
         self.vertical_flip.stateChanged.connect(self.update_expected_count)
+        self.vertical_flip.stateChanged.connect(self.update_preview)
         flip_layout.addWidget(self.vertical_flip)
         
         # Style flip box
         flip_box.setStyleSheet("""
             QGroupBox {
                 border: 1px solid #ddd;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 10px;
+                border-radius: 4px;
+                margin-top: 3px;
+                padding: 5px;
                 background: white;
             }
             QGroupBox:hover {
@@ -439,6 +526,18 @@ class ImageAugmentationApp(QMainWindow):
         # Paths
         self.source_path = None
         self.dest_path = None
+        
+        # Sample image for preview
+        self.sample_image = None
+        self.sample_boxes = []
+        
+        # Update preview timer
+        self.preview_timer = QTimer()
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.timeout.connect(self.generate_preview)
+        
+        # Initialize preview to off
+        self.toggle_preview(self.preview_checkbox.isChecked())
 
     def setup_augmentation_methods(self):
         """Set up augmentation method controls."""
@@ -455,15 +554,15 @@ class ImageAugmentationApp(QMainWindow):
             
             # Create and style info button
             info_btn = QPushButton("ℹ")
-            info_btn.setFixedSize(32, 32)
+            info_btn.setFixedSize(24, 24)
             info_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #2196F3;
                     color: white;
-                    border-radius: 14px;
-                    font-size: 14px;
+                    border-radius: 3px;
+                    font-size: 12px;
                     font-weight: bold;
-                    margin: 0 8px;
+                    margin: 0 4px;
                 }
                 QPushButton:hover {
                     background-color: #1976D2;
@@ -479,14 +578,18 @@ class ImageAugmentationApp(QMainWindow):
             # Style spinboxes
             spinbox_style = """
                 QSpinBox {
-                    padding: 5px;
+                    padding: 3px;
                     border: 1px solid #ddd;
-                    border-radius: 4px;
+                    border-radius: 3px;
                     background: white;
-                    min-width: 60px;
+                    min-width: 50px;
                 }
                 QSpinBox:hover {
                     border-color: #2196F3;
+                }
+                /* Make the up/down arrows wider */
+                QSpinBox::up-button, QSpinBox::down-button {
+                    width: 20px; /* Wider buttons */
                 }
             """
             level_spinbox1.setStyleSheet(spinbox_style)
@@ -585,7 +688,7 @@ class ImageAugmentationApp(QMainWindow):
         # Show info in a styled message box
         msg = QMessageBox()
         msg.setWindowTitle(f"Info: {method}")
-        msg.setText(info.get(method, "Keine Info verfügbar"))
+        msg.setText(info.get(method, "Keine Informationen verfügbar."))
         msg.setStyleSheet("""
             QMessageBox {
                 background-color: white;
@@ -655,6 +758,178 @@ class ImageAugmentationApp(QMainWindow):
             # Update counts
             image_files = list(Path(path).rglob("*.jpg")) + list(Path(path).rglob("*.png"))
             self.update_expected_count()
+            
+            # Load sample image for preview
+            self.load_sample_image()
+
+    def load_sample_image(self):
+        """Load a sample image for preview."""
+        if not self.source_path:
+            return
+            
+        try:
+            # Find first image and label
+            image_files = list(Path(self.source_path).rglob("*.jpg")) + list(Path(self.source_path).rglob("*.png"))
+            if not image_files:
+                return
+                
+            image_path = str(image_files[0])
+            label_path = os.path.splitext(image_path)[0] + ".txt"
+            
+            # Load image
+            self.sample_image = cv2.imread(image_path)
+            if self.sample_image is None:
+                logger.error(f"Failed to load sample image: {image_path}")
+                return
+                
+            # Load boxes if label exists
+            self.sample_boxes = []
+            if os.path.exists(label_path):
+                with open(label_path, 'r') as f:
+                    for line in f:
+                        try:
+                            parts = line.strip().split()
+                            if len(parts) >= 5:
+                                self.sample_boxes.append(list(map(float, parts)))
+                        except Exception as e:
+                            logger.error(f"Error parsing label: {e}")
+            
+            # Show original image
+            self.display_image(self.sample_image, self.original_preview)
+            
+            # Update preview
+            self.update_preview()
+            
+        except Exception as e:
+            logger.error(f"Error loading sample image: {e}")
+
+    def display_image(self, image, label_widget, max_size=300):
+        """Display image in a label widget with proper scaling."""
+        if image is None:
+            return
+            
+        # Convert to RGB for Qt
+        display_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Calculate aspect ratio preserving scale
+        h, w = display_img.shape[:2]
+        scale = min(max_size/w, max_size/h)
+        
+        # Resize image
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        display_img = cv2.resize(display_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # Convert to QImage and display
+        qimg = QImage(display_img.data, new_w, new_h, new_w * 3, QImage.Format.Format_RGB888)
+        label_widget.setPixmap(QPixmap.fromImage(qimg))
+
+    def toggle_preview(self, state):
+        """Toggle preview visibility."""
+        is_visible = state == Qt.CheckState.Checked.value
+        self.refresh_preview_button.setEnabled(is_visible)
+        
+        # Switch to appropriate stack index
+        self.stack.setCurrentIndex(1 if is_visible else 0)
+        
+        # Update preview if checked
+        if is_visible:
+            self.update_preview()
+
+    def update_preview(self):
+        """Schedule an update to the preview images."""
+        if not self.preview_checkbox.isChecked() or self.sample_image is None:
+            return
+            
+        # Use a timer to debounce frequent updates
+        self.preview_timer.start(100)
+
+    def generate_preview(self):
+        """Generate preview images for Level 1 and Level 2 of active augmentations."""
+        if not self.preview_checkbox.isChecked() or self.sample_image is None:
+            return
+            
+        # Display original image
+        self.display_image(self.sample_image, self.original_preview)
+        
+        # Get active methods
+        active_methods = []
+        for method in self.methods:
+            method_key = self.get_method_key(method)
+            if method_key in self.method_levels:
+                checkbox, level1_spin, level2_spin = self.method_levels[method_key]
+                if checkbox.isChecked():
+                    active_methods.append((method, method_key, level1_spin.value(), level2_spin.value()))
+        
+        # If no methods are active, clear previews
+        if not active_methods and not self.horizontal_flip.isChecked() and not self.vertical_flip.isChecked():
+            self.level1_preview.clear()
+            self.level2_preview.clear()
+            return
+        
+        # Generate Level 1 preview
+        level1_img = self.sample_image.copy()
+        level1_boxes = self.sample_boxes.copy() if self.sample_boxes else []
+        
+        # Apply each active method at EXACTLY Level 1 value (not random)
+        for method, method_key, level1, _ in active_methods:
+            # Use the same value for both min and max to get exactly level1 effect
+            level1_img, level1_boxes = augment_image_with_boxes(
+                level1_img, level1_boxes, method_key, level1, level1,  # Set min=max=level1
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+            
+        # Add flips for Level 1 (not random, always flip)
+        if self.horizontal_flip.isChecked():
+            level1_img, level1_boxes = augment_image_with_boxes(
+                level1_img, level1_boxes, "HorizontalFlip", 0, 0,
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+            
+        if self.vertical_flip.isChecked():
+            level1_img, level1_boxes = augment_image_with_boxes(
+                level1_img, level1_boxes, "VerticalFlip", 0, 0,
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+        
+        # Display Level 1 preview
+        if level1_img is not None:
+            self.display_image(level1_img, self.level1_preview)
+        
+        # Generate Level 2 preview
+        level2_img = self.sample_image.copy()
+        level2_boxes = self.sample_boxes.copy() if self.sample_boxes else []
+        
+        # Apply each active method at EXACTLY Level 2 value (not random)
+        for method, method_key, _, level2 in active_methods:
+            # Use the same value for both min and max to get exactly level2 effect
+            level2_img, level2_boxes = augment_image_with_boxes(
+                level2_img, level2_boxes, method_key, level2, level2,  # Set min=max=level2
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+            
+        # Add flips for Level 2 (not random, always flip)
+        if self.horizontal_flip.isChecked():
+            level2_img, level2_boxes = augment_image_with_boxes(
+                level2_img, level2_boxes, "HorizontalFlip", 0, 0,
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+            
+        if self.vertical_flip.isChecked():
+            level2_img, level2_boxes = augment_image_with_boxes(
+                level2_img, level2_boxes, "VerticalFlip", 0, 0,
+                min_visibility=self.settings.get('min_visibility', 0.3),
+                min_size=self.settings.get('min_size', 20)
+            )
+        
+        # Display Level 2 preview
+        if level2_img is not None:
+            self.display_image(level2_img, self.level2_preview)
 
     def browse_dest(self):
         """Open file dialog to select destination directory."""
@@ -663,52 +938,55 @@ class ImageAugmentationApp(QMainWindow):
             self.dest_path = path
             self.dest_label.setText(f"Zielverzeichnis: {path}")
 
+    def calculate_augmentation_count(self):
+        """Calculate the expected number of output images accurately."""
+        if not self.source_path:
+            return 0, 0
+                
+        image_files = list(Path(self.source_path).rglob("*.jpg")) + \
+                     list(Path(self.source_path).rglob("*.png"))
+        if not image_files:
+            return 0, 0
+
+        # Get selected methods
+        selected_methods = []
+        for method in self.methods:
+            checkbox = next(cb for cb in self.method_checkboxes if cb.text() == method)
+            if checkbox.isChecked():
+                selected_methods.append(method)
+
+        if not selected_methods and not self.horizontal_flip.isChecked() and not self.vertical_flip.isChecked():
+            return len(image_files), len(image_files)
+
+        # Calculate combinations
+        # Start with 1 combination (original image)
+        combinations = 1
+        
+        # Each selected method adds 2 new variations (level1 and level2)
+        for _ in selected_methods:
+            combinations += 2
+
+        # Add flip combinations (we need to be consistent across both UI and popup)
+        if self.horizontal_flip.isChecked():
+            combinations = int(combinations * 1.5)  # 50% more combinations
+        if self.vertical_flip.isChecked():
+            combinations = int(combinations * 1.5)  # 50% more combinations
+
+        total_augmentations = len(image_files) * combinations
+        return len(image_files), total_augmentations
+
     def update_expected_count(self):
         """Update expected augmentation count based on selected methods."""
         try:
-            if not self.source_path:
-                self.count_info.setText("Aktuelle Anzahl Bilder: -\nErwartete Anzahl Bilder: -")
-                return
-                
-            image_files = list(Path(self.source_path).rglob("*.jpg")) + \
-                         list(Path(self.source_path).rglob("*.png"))
-            if not image_files:
-                self.count_info.setText("Aktuelle Anzahl Bilder: 0\nErwartete Anzahl Bilder: 0")
-                return
-
-            # Get selected methods
-            selected_methods = []
-            for method in self.methods:
-                checkbox = next(cb for cb in self.method_checkboxes if cb.text() == method)
-                if checkbox.isChecked():
-                    selected_methods.append(method)
-
-            if not selected_methods:
-                self.count_info.setText(
-                    f"Aktuelle Anzahl Bilder: {len(image_files)}\n"
-                    f"Erwartete Anzahl Bilder: {len(image_files)}"
-                )
-                return
-
-            # For each method, we have 3 possibilities: no change, level1, level2
-            # Start with 1 combination (original image)
-            combinations = 1
+            original_count, total_count = self.calculate_augmentation_count()
             
-            # Each selected method adds 2 new variations (level1 and level2)
-            for _ in selected_methods:
-                combinations += 2
-
-            # Add combinations for flips
-            if self.horizontal_flip.isChecked():
-                combinations = int(combinations * 1.5)  # 50% more combinations
-            if self.vertical_flip.isChecked():
-                combinations = int(combinations * 1.5)  # 50% more combinations
-
-            total_augmentations = len(image_files) * combinations 
             self.count_info.setText(
-                f"Aktuelle Anzahl Bilder: {len(image_files):,}\n"
-                f"Erwartete Anzahl Bilder: {total_augmentations:,}"
+                f"Aktuelle Anzahl Bilder: {original_count:,}\n"
+                f"Erwartete Anzahl Bilder: {total_count:,}"
             )
+
+            # Update preview when methods change
+            self.update_preview()
         except Exception as e:
             logger.error(f"Error updating expected count: {e}")
 
@@ -734,7 +1012,7 @@ class ImageAugmentationApp(QMainWindow):
                         return
                     selected_methods.append((method_name, level1, level2))
 
-            if not selected_methods:
+            if not selected_methods and not self.horizontal_flip.isChecked() and not self.vertical_flip.isChecked():
                 QMessageBox.warning(self, "Fehler", 
                                   "Bitte wählen Sie mindestens eine Augmentierungsmethode aus.")
                 return
@@ -749,17 +1027,17 @@ class ImageAugmentationApp(QMainWindow):
                                   "Keine Bilder im Quellverzeichnis gefunden.")
                 return
 
-            # Calculate total expected combinations
-            total_combinations = list(product([0, 1, 2], repeat=len(selected_methods)))
-            
+            # Use the same calculation for UI and popup
+            _, total_count = self.calculate_augmentation_count()
+
             # Show expected augmentation count
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle("Augmentierung starten")
             msg.setText(
-                f"Es werden {len(image_files)} Bilder mit {len(total_combinations)} "
+                f"Es werden {len(image_files)} Bilder mit {total_count} "
                 f"Kombinationen verarbeitet.\n\n"
-                f"Maximal mögliche Augmentierungen: {len(image_files) * len(total_combinations)}\n"
+                f"Maximal mögliche Augmentierungen: {total_count}\n"
                 f"(Die tatsächliche Anzahl kann geringer sein, wenn Bilder die "
                 f"Validierungskriterien nicht erfüllen)"
             )
@@ -767,12 +1045,31 @@ class ImageAugmentationApp(QMainWindow):
             if msg.exec() == QMessageBox.StandardButton.Cancel:
                 return
 
+            # Switch to processing view
+            self.stack.setCurrentIndex(0)
+
             # Reset progress
             self.progress_bar.setValue(0)
             self.progress_bar.setMaximum(len(image_files))
             
             valid_augmentations = 0
             invalid_augmentations = 0
+
+            # Calculate total combinations for progress updates
+            # Start with 1 combination (original image)
+            combinations = 1
+            
+            # Each selected method adds 2 new variations (level1 and level2)
+            for _ in selected_methods:
+                combinations += 2
+
+            # Add flip combinations
+            if self.horizontal_flip.isChecked():
+                combinations = int(combinations * 1.5)  # 50% more combinations
+            if self.vertical_flip.isChecked():
+                combinations = int(combinations * 1.5)  # 50% more combinations
+                
+            total_combinations = list(product([0, 1, 2], repeat=len(selected_methods)))
 
             # Perform augmentation
             for i, image_file in enumerate(image_files):
@@ -840,31 +1137,31 @@ class ImageAugmentationApp(QMainWindow):
                         break
 
                     # Show preview of augmented image if enabled
-                    if self.preview_checkbox.isChecked() and augmented_image is not None:
-                            # Convert to RGB for Qt
-                            preview_img = cv2.cvtColor(augmented_image, cv2.COLOR_BGR2RGB)
-                            
-                            # Get preview label size
-                            preview_width = min(800, self.preview_label.width())  # Limit max width
-                            preview_height = min(600, self.preview_label.height()) # Limit max height
-                            
-                            # Calculate aspect ratio preserving scale
-                            img_h, img_w = preview_img.shape[:2]
-                            scale = min(preview_width/img_w, preview_height/img_h)
-                            
-                            # Calculate new size
-                            new_w = int(img_w * scale)
-                            new_h = int(img_h * scale)
-                            
-                            # Resize image
-                            preview_img = cv2.resize(preview_img, (new_w, new_h), 
-                                                   interpolation=cv2.INTER_AREA)
-                            
-                            # Convert to QImage and display
-                            qimg = QImage(preview_img.data, new_w, new_h, 
-                                        new_w * 3, QImage.Format.Format_RGB888)
-                            self.preview_label.setPixmap(QPixmap.fromImage(qimg))
-                            QApplication.processEvents()
+                    if augmented_image is not None:
+                        # Convert to RGB for Qt
+                        preview_img = cv2.cvtColor(augmented_image, cv2.COLOR_BGR2RGB)
+                        
+                        # Get preview label size
+                        preview_width = min(800, self.preview_label.width())  # Limit max width
+                        preview_height = min(600, self.preview_label.height()) # Limit max height
+                        
+                        # Calculate aspect ratio preserving scale
+                        img_h, img_w = preview_img.shape[:2]
+                        scale = min(preview_width/img_w, preview_height/img_h)
+                        
+                        # Calculate new size
+                        new_w = int(img_w * scale)
+                        new_h = int(img_h * scale)
+                        
+                        # Resize image
+                        preview_img = cv2.resize(preview_img, (new_w, new_h), 
+                                               interpolation=cv2.INTER_AREA)
+                        
+                        # Convert to QImage and display
+                        qimg = QImage(preview_img.data, new_w, new_h, 
+                                    new_w * 3, QImage.Format.Format_RGB888)
+                        self.preview_label.setPixmap(QPixmap.fromImage(qimg))
+                        QApplication.processEvents()
 
                     # Only save if augmentation was applied and validation passed
                     if not valid_augmentation or not augmented:
@@ -895,6 +1192,10 @@ class ImageAugmentationApp(QMainWindow):
                 f"Gültige Augmentierungen: {valid_augmentations}\n"
                 f"Ungültige Augmentierungen: {invalid_augmentations}"
             )
+            
+            # Return to preview mode if it was on
+            if self.preview_checkbox.isChecked():
+                self.stack.setCurrentIndex(1)
             
         except Exception as e:
             logger.critical(f"Unbehandelter Fehler: {str(e)}", exc_info=True)
