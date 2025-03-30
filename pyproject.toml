@@ -16,6 +16,7 @@ dependencies = [
     "optuna>=4.2.1",
     "albumentations",
     "emoji>=2.14.1",
+    "markdown>=3.7",
 ]
 
 [tool.uv.pip]

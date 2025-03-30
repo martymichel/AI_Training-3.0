@@ -47,3 +47,4 @@ tzdata==2025.1
 ultralytics==8.3.85
 ultralytics-thop==2.0.14
 urllib3==2.3.0
+markdown==3.7

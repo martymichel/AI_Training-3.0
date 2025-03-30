@@ -8,6 +8,7 @@ import traceback
 import logging
 import platform
 from pathlib import Path
+import time
 
 # Configure logging
 logger = logging.getLogger("yolo_training")
@@ -25,7 +26,7 @@ def get_optimal_workers():
     """Get optimal number of workers based on system."""
     cpu_count = os.cpu_count() or 1
     # Leave some cores free for system
-    return max(1, min(14, cpu_count - 2))
+    return max(1, min(8, cpu_count - 2))
 
 def get_device_settings():
     """Get optimal device and batch settings."""
@@ -38,9 +39,9 @@ def get_device_settings():
         if gpu_mem >= 10:  # High-end GPUs (>= 10GB)
             return 'cuda:0', 1.0
         elif gpu_mem >= 6:  # Mid-range GPUs (6-8GB)
-            return 'cuda:0', 0.8
+            return 'cuda:0', 0.5
         else:  # Low memory GPUs
-            return 'cuda:0', 0.7
+            return 'cuda:0', 0.3
     except Exception as e:
         logger.warning(f"Error getting GPU info: {e}")
         return 'cuda:0', 0.5
@@ -68,10 +69,20 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
         logger.info(f"Batch size: {batch}")
         logger.info(f"Workers: {workers}")
         
-        # Initialize model
-        model = YOLO("yolov8n.pt")  # Use standard YOLOv8 nano model
+        # Initialize model VERSION 11 - newest version
+        model = YOLO("yolo11n.pt")  # Use standard YOLOv8 nano model
         
-        # Start training
+        # Log progress using the callback
+        if log_callback:
+            log_callback("Starting training with the following parameters:")
+            log_callback(f"Data path: {data_path}")
+            log_callback(f"Epochs: {epochs}")
+            log_callback(f"Image size: {imgsz}")
+            log_callback(f"Batch: {batch}")
+            log_callback(f"Learning rate: {lr0}")
+            log_callback(f"Device: {device}")
+        
+        # Start training - REMOVED callbacks parameter as it's not supported
         model.train(
             resume=resume,
             data=data_path,
@@ -97,8 +108,12 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
             seed=42  # Fixed seed for reproducibility
         )
         
+        # Manual progress tracking 
         if progress_callback:
-            progress_callback(100)
+            progress_callback(100, "Training completed successfully")
+        
+        if log_callback:
+            log_callback("Training completed successfully")
     
     except torch.cuda.OutOfMemoryError:
         error_msg = (

@@ -5,15 +5,18 @@ import time
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
+
+# Configure matplotlib logging - SUPPRESS DEBUG MESSAGES
 import logging
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.getLogger('PIL.PngImagePlugin').setLevel(logging.WARNING)
+logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
+
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QLabel, QMessageBox, QHBoxLayout,
     QPushButton, QFileDialog
 )
 from PyQt6.QtCore import QTimer, QThread, pyqtSignal
-# Disable matplotlib font debug messages
-logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
-logging.getLogger('PIL.PngImagePlugin').setLevel(logging.ERROR)
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
