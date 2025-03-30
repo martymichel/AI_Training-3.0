@@ -3,8 +3,10 @@
 import os
 import cv2
 import logging
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap
 from utils.augmentation_utils import augment_image_with_boxes
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,6 @@ def load_sample_image(app):
         
     try:
         # Find first image and label
-        from pathPath import Path
         image_files = list(Path(app.source_path).rglob("*.jpg")) + list(Path(app.source_path).rglob("*.png"))
         if not image_files:
             return
@@ -45,7 +46,7 @@ def load_sample_image(app):
         display_image(app.sample_image, app.original_preview)
         
         # Update preview
-        update_preview(app)
+        generate_preview(app)
         
     except Exception as e:
         logger.error(f"Error loading sample image: {e}")
@@ -73,7 +74,6 @@ def display_image(image, label_widget, max_size=300):
 
 def toggle_preview_mode(app, state):
     """Toggle preview visibility."""
-    from PyQt6.QtCore import Qt
     is_visible = state == Qt.CheckState.Checked.value
     app.refresh_preview_button.setEnabled(is_visible)
     
@@ -82,7 +82,7 @@ def toggle_preview_mode(app, state):
     
     # Update preview if checked
     if is_visible:
-        update_preview(app)
+        generate_preview(app)
 
 def update_preview(app):
     """Schedule an update to the preview images."""
@@ -94,7 +94,11 @@ def update_preview(app):
 
 def generate_preview(app):
     """Generate preview images for Level 1 and Level 2 of active augmentations."""
-    if not app.preview_checkbox.isChecked() or app.sample_image is None:
+    # Ensure preview is enabled when clicking "Neue Vorschau"
+    if not app.preview_checkbox.isChecked():
+        app.preview_checkbox.setChecked(True)
+    
+    if app.sample_image is None:
         return
         
     # Display original image
@@ -107,35 +111,35 @@ def generate_preview(app):
         if method_key in app.method_levels:
             checkbox, level1_spin, level2_spin = app.method_levels[method_key]
             if checkbox.isChecked():
-                active_methods.append((method, method_key, level1_spin.value(), level2_spin.value()))
+                active_methods.append((method_key, level1_spin.value(), level2_spin.value()))
     
-    # If no methods are active, clear previews
+    # If no active methods and no flips, clear previews and return
     if not active_methods and not app.horizontal_flip.isChecked() and not app.vertical_flip.isChecked():
         app.level1_preview.clear()
         app.level2_preview.clear()
         return
     
-    # Generate Level 1 preview
+    # Generate Level 1 preview - use EXACT Level 1 values (not random ranges)
     level1_img = app.sample_image.copy()
     level1_boxes = app.sample_boxes.copy() if app.sample_boxes else []
     
-    # Apply each active method at EXACTLY Level 1 value (not random)
-    for method, method_key, level1, _ in active_methods:
-        # Use the exact level1 value for both min and max to get exactly level1 effect
+    # Apply each active method at exactly Level 1 value
+    for method_key, level1, _ in active_methods:
+        # Use the exact level1 value for both min and max to get consistent preview
         level1_img, level1_boxes = augment_image_with_boxes(
-            level1_img, level1_boxes, method, level1, level1,  # Same value for min and max
+            level1_img, level1_boxes, method_key, level1, level1,  # Same value for min and max = exact level
             min_visibility=app.settings.get('min_visibility', 0.3),
             min_size=app.settings.get('min_size', 20)
         )
-        
-    # Add flips for Level 1 if enabled
+    
+    # Add flips for Level 1 if enabled (always apply for preview, not random)
     if app.horizontal_flip.isChecked():
         level1_img, level1_boxes = augment_image_with_boxes(
             level1_img, level1_boxes, "HorizontalFlip", 0, 0,
             min_visibility=app.settings.get('min_visibility', 0.3),
             min_size=app.settings.get('min_size', 20)
         )
-        
+    
     if app.vertical_flip.isChecked():
         level1_img, level1_boxes = augment_image_with_boxes(
             level1_img, level1_boxes, "VerticalFlip", 0, 0,
@@ -147,27 +151,27 @@ def generate_preview(app):
     if level1_img is not None:
         display_image(level1_img, app.level1_preview)
     
-    # Generate Level 2 preview
+    # Generate Level 2 preview - use EXACT Level 2 values (not random ranges)
     level2_img = app.sample_image.copy()
     level2_boxes = app.sample_boxes.copy() if app.sample_boxes else []
     
-    # Apply each active method at EXACTLY Level 2 value (not random)
-    for method, method_key, _, level2 in active_methods:
-        # Use the exact level2 value for both min and max to get exactly level2 effect
+    # Apply each active method at exactly Level 2 value
+    for method_key, _, level2 in active_methods:
+        # Use the exact level2 value for both min and max to get consistent preview
         level2_img, level2_boxes = augment_image_with_boxes(
-            level2_img, level2_boxes, method, level2, level2,  # Same value for min and max
+            level2_img, level2_boxes, method_key, level2, level2,  # Same value for min and max = exact level
             min_visibility=app.settings.get('min_visibility', 0.3),
             min_size=app.settings.get('min_size', 20)
         )
-        
-    # Add flips for Level 2 if enabled
+    
+    # Add flips for Level 2 if enabled (always apply for preview, not random)
     if app.horizontal_flip.isChecked():
         level2_img, level2_boxes = augment_image_with_boxes(
             level2_img, level2_boxes, "HorizontalFlip", 0, 0,
             min_visibility=app.settings.get('min_visibility', 0.3),
             min_size=app.settings.get('min_size', 20)
         )
-        
+    
     if app.vertical_flip.isChecked():
         level2_img, level2_boxes = augment_image_with_boxes(
             level2_img, level2_boxes, "VerticalFlip", 0, 0,

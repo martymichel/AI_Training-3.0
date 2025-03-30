@@ -4,6 +4,7 @@ import os
 import cv2
 import numpy as np
 import logging
+import shutil
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox, QApplication
 from PyQt6.QtGui import QImage, QPixmap
@@ -31,30 +32,20 @@ def calculate_augmentation_count(app):
             if checkbox.isChecked():
                 selected_methods.append(method)
 
-    if not selected_methods and not app.horizontal_flip.isChecked() and not app.vertical_flip.isChecked():
+    # If no methods are active, no augmentation
+    if not selected_methods:
         return len(image_files), len(image_files)
 
-    # For each method, we have 3 possibilities: no augmentation (0), level1 (1), level2 (2)
-    # Start with 1 combination (original image without augmentation)
-    base_combinations = 3 ** len(selected_methods)
+    # For each active method, we get 3 variations (original, level1, level2)
+    # So total combinations is 3^n where n is number of active methods
+    total_combinations = 3 ** len(selected_methods)
     
-    # Apply flip factors if enabled (50% of images will have each flip)
-    # So we need to multiply by 1.5 for each enabled flip
-    flip_factor = 1.0
-    if app.horizontal_flip.isChecked():
-        flip_factor *= 1.5
-    if app.vertical_flip.isChecked():
-        flip_factor *= 1.5
+    # The flips don't affect the count as they're applied to a percentage of images
+    # They don't create additional images
     
-    # Calculate total combinations
-    total_combinations = int(base_combinations * flip_factor)
+    # Calculate total output images
+    total_augmentations = len(image_files) * total_combinations
     
-    # Since original image (no augmentation) is included in the combinations
-    # we need to subtract 1 if we don't want to include it in the augmentation count
-    if total_combinations > 1:
-        total_combinations -= 1  # Subtract original image
-    
-    total_augmentations = len(image_files) * total_combinations + len(image_files)
     return len(image_files), total_augmentations
 
 def get_method_key(method_name):
@@ -135,11 +126,7 @@ def start_augmentation_process(app):
         valid_augmentations = 0
         invalid_augmentations = 0
 
-        # Create total combinations for methods
-        # Each method can have: no augmentation (0), level1 (1), level2 (2)
-        method_combinations = list(product([0, 1, 2], repeat=len(selected_methods)))
-
-        # Perform augmentation
+        # Perform augmentation for each image
         for i, image_file in enumerate(image_files):
             # Update progress for each source image
             app.progress_bar.setValue(i + 1)
@@ -157,18 +144,29 @@ def start_augmentation_process(app):
                         logger.error(f"Fehler beim Parsen der Labels in {label_file}: {e}")
                         continue
 
-            # Save original image to destination if needed
-            # (commented out as we typically don't want to copy originals)
-            # shutil.copy2(str(image_file), os.path.join(app.dest_path, image_file.name))
+            # Always include original image in the output
+            # (original is the first of the 3 variations for each method)
+            original_image_path = Path(app.dest_path) / f"{image_file.stem}_Original.jpg"
+            original_label_path = Path(app.dest_path) / f"{image_file.stem}_Original.txt"
             
-            # Generate all combinations
+            # Copy the original image and label
+            cv2.imwrite(str(original_image_path), image)
+            if label_file:
+                shutil.copy2(str(label_file), str(original_label_path))
+            valid_augmentations += 1
+
+            # Create total combinations for methods
+            # Each method can have: no augmentation (0), level1 (1), level2 (2)
+            method_combinations = list(product([0, 1, 2], repeat=len(selected_methods)))
+
+            # Generate augmented variations
             for combination in method_combinations:
-                # Skip the "no augmentation" case (all zeros) to avoid copying original image
+                # Skip the case of all levels=0 as we already included the original image
                 if all(level == 0 for level in combination):
                     continue
                     
                 augmented_image = image.copy()
-                augmented_boxes = boxes.copy()
+                augmented_boxes = boxes.copy() if boxes else []
                 valid_augmentation = True
                 augmented = False  # Track if any augmentation was applied
                 output_suffix = []

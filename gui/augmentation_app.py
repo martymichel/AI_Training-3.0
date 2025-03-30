@@ -172,7 +172,8 @@ class ImageAugmentationApp(QMainWindow):
         # Preview toggle
         preview_layout = QHBoxLayout()
         self.preview_checkbox = QCheckBox("Bild Vorschau anzeigen")
-        self.preview_checkbox.setChecked(True)
+        # Set to false by default as per requirement
+        self.preview_checkbox.setChecked(False)
         self.preview_checkbox.stateChanged.connect(lambda state: toggle_preview_mode(self, state))
         preview_layout.addWidget(self.preview_checkbox)
         
