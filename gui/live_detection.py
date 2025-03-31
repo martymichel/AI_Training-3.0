@@ -1,5 +1,6 @@
 """Live object detection application module."""
 
+import os
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -7,16 +8,25 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QDoubleSpinBox, QComboBox, QMessageBox,
     QFileDialog, QGroupBox, QSlider, QScrollArea, QListWidget,
-    QListWidgetItem
+    QListWidgetItem, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-from PyQt6.QtGui import QImage, QPixmap, QFont, QColor
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QMutex, QMutexLocker
+from PyQt6.QtGui import QImage, QPixmap, QFont, QColor, QIcon, QPalette, QLinearGradient, QBrush
 import yaml
 from pathlib import Path
 import json
-from PyQt6.QtWidgets import QDialog
 import logging
-import os
+import time
+
+# Add IDS Peak API support
+try:
+    import ids_peak.ids_peak as ids_peak
+    import ids_peak_ipl.ids_peak_ipl as ids_ipl
+    import ids_peak.ids_peak_ipl_extension as ids_ipl_extension
+    IDS_PEAK_AVAILABLE = True
+except ImportError:
+    IDS_PEAK_AVAILABLE = False
+    logging.warning("IDS Peak API not available")
 
 class CameraSelectionDialog(QDialog):
     """Dialog for selecting a camera device."""
@@ -33,10 +43,24 @@ class CameraSelectionDialog(QDialog):
         self.camera_list = QListWidget()
         layout.addWidget(self.camera_list)
         
-        # Populate camera list
-        self.available_cameras = self.find_cameras()
-        for i, (name, _) in enumerate(self.available_cameras):
-            item = QListWidgetItem(f"Camera {i}: {name}")
+        # Populate camera list with various camera types
+        self.available_cameras = []
+        
+        # Add USB cameras
+        usb_cameras = self.find_usb_cameras()
+        self.available_cameras.extend([("usb", name, idx) for name, idx in usb_cameras])
+        
+        # Add IDS Peak cameras if available
+        if IDS_PEAK_AVAILABLE:
+            ids_cameras = self.find_ids_peak_cameras()
+            self.available_cameras.extend([("ids_peak", name, idx) for name, idx in ids_cameras])
+        
+        # Add camera items to the list
+        for i, (cam_type, name, _) in enumerate(self.available_cameras):
+            if cam_type == "usb":
+                item = QListWidgetItem(f"USB-Kamera {i}: {name}")
+            elif cam_type == "ids_peak":
+                item = QListWidgetItem(f"IDS Peak: {name}")
             self.camera_list.addItem(item)
         
         if not self.available_cameras:
@@ -56,8 +80,8 @@ class CameraSelectionDialog(QDialog):
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
     
-    def find_cameras(self):
-        """Find available camera devices."""
+    def find_usb_cameras(self):
+        """Find available USB camera devices."""
         available_cameras = []
         # Try opening each camera index
         for i in range(10):  # Check first 10 indexes
@@ -69,14 +93,488 @@ class CameraSelectionDialog(QDialog):
                 cap.release()
         return available_cameras
     
+    def find_ids_peak_cameras(self):
+        """Find available IDS Peak camera devices."""
+        try:
+            # Initialize IDS Peak library
+            ids_peak.Library.Initialize()
+            
+            # Get device manager and update device list
+            device_manager = ids_peak.DeviceManager.Instance()
+            device_manager.Update()
+            
+            # Get available devices
+            device_descriptors = device_manager.Devices()
+            
+            # Return list of available cameras
+            cameras = [(device.DisplayName(), i) for i, device in enumerate(device_descriptors)]
+            
+            return cameras
+        except Exception as e:
+            logging.warning(f"Error finding IDS Peak cameras: {e}")
+            return []
+    
     def get_selected_camera(self):
-        """Get the selected camera index."""
+        """Get the selected camera info."""
         if not self.available_cameras:
             return None
         current_row = self.camera_list.currentRow()
         if current_row >= 0:
-            return self.available_cameras[current_row][1]
+            return self.available_cameras[current_row]
         return None
+
+class IDSPeakDetectionThread(QThread):
+    """Thread for running object detection with IDS Peak camera."""
+    
+    frame_ready = pyqtSignal(QImage, list)  # frame and detection results
+    error = pyqtSignal(str)
+    
+    def __init__(self, model_path, class_names, camera_id=0, settings=None):
+        super().__init__()
+        self.model_path = model_path
+        self.class_names = class_names
+        self.camera_id = camera_id
+        self.running = False
+        self.device = None
+        self.datastream = None
+        self.remote_device_nodemap = None
+        self.model = None
+        self.paused = False
+        self.settings = settings or {}
+        self._lock = QMutex()
+        
+        # Initialize settings
+        self.update_settings(self.settings)
+        
+        # Motion detection state
+        self.prev_gray = None
+        self.is_static = False
+    
+    def update_settings(self, settings):
+        """Update detection settings."""
+        self.motion_threshold = settings.get('motion_threshold', 110)
+        self.threshold = settings.get('class_thresholds', {}).get("0", 0.7)  # Default to 0.7 if not set
+        self.iou_threshold = settings.get('iou_threshold', 0.45)
+        self.class_thresholds = settings.get('class_thresholds', {})
+        self.exposure_time = settings.get('exposure_time', 75000)
+        self.frame_config = {
+            'frame_assignments': settings.get('frame_assignments', {}),
+            'green_threshold': settings.get('green_threshold', 4),
+            'red_threshold': settings.get('red_threshold', 1)
+        }
+    
+    def run(self):
+        """Main detection loop."""
+        try:
+            with QMutexLocker(self._lock):
+                # Initialize IDS Peak API
+                ids_peak.Library.Initialize()
+                
+                # Get device manager and update device list
+                device_manager = ids_peak.DeviceManager.Instance()
+                device_manager.Update()
+                
+                # Get available devices
+                device_descriptors = device_manager.Devices()
+                if not device_descriptors:
+                    raise Exception("No IDS Peak cameras found")
+                
+                # Open selected camera
+                if self.camera_id < len(device_descriptors):
+                    device_descriptor = device_descriptors[self.camera_id]
+                else:
+                    device_descriptor = device_descriptors[0]
+                
+                self.device = device_descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
+                self.remote_device_nodemap = self.device.RemoteDevice().NodeMaps()[1]
+                
+                # Configure camera for continuous acquisition
+                self.remote_device_nodemap.FindNode("TriggerSelector").SetCurrentEntry("ExposureStart")
+                self.remote_device_nodemap.FindNode("TriggerSource").SetCurrentEntry("Software")
+                self.remote_device_nodemap.FindNode("TriggerMode").SetCurrentEntry("Off")
+                
+                # Set exposure time from settings
+                self.remote_device_nodemap.FindNode("ExposureTime").SetValue(self.exposure_time)
+                
+                # Prepare datastream
+                self.datastream = self.device.DataStreams()[0].OpenDataStream()
+                payload_size = self.remote_device_nodemap.FindNode("PayloadSize").Value()
+                
+                # Allocate buffers
+                for i in range(self.datastream.NumBuffersAnnouncedMinRequired()):
+                    buffer = self.datastream.AllocAndAnnounceBuffer(payload_size)
+                    self.datastream.QueueBuffer(buffer)
+                
+                # Start acquisition
+                self.datastream.StartAcquisition()
+                self.remote_device_nodemap.FindNode("AcquisitionStart").Execute()
+                self.remote_device_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+                
+                # Initialize YOLO model
+                self.model = YOLO(self.model_path)
+            
+            self.running = True
+            
+            while self.running:
+                if self.paused:
+                    self.msleep(100)
+                    continue
+                
+                with QMutexLocker(self._lock):
+                    # Capture frame from camera
+                    buffer = self.datastream.WaitForFinishedBuffer(1000)
+                    
+                    # Convert buffer to image
+                    raw_image = ids_ipl_extension.BufferToImage(buffer)
+                    color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
+                    
+                    # Queue buffer for next frame
+                    self.datastream.QueueBuffer(buffer)
+                    
+                    # Convert to NumPy array
+                    frame = color_image.get_numpy_3D()
+                    
+                    # Convert to BGR for OpenCV
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    
+                    # Detect motion
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    if self.prev_gray is None:
+                        self.prev_gray = gray
+                        continue
+                    
+                    diff = cv2.absdiff(gray, self.prev_gray)
+                    max_diff = np.max(diff)
+                    self.prev_gray = gray
+                    
+                    # Update motion state
+                    self.is_static = max_diff < self.motion_threshold
+                    
+                    # Only run detection when static
+                    if self.is_static:
+                        # Run object detection
+                        results = self.model(
+                            frame,
+                            conf=self.threshold,
+                            iou=self.iou_threshold
+                        )[0]
+                        
+                        boxes = results.boxes
+                        annotated_frame = frame.copy()
+                        
+                        if boxes is not None and len(boxes) > 0:
+                            cls_array = boxes.cls.cpu().numpy()
+                            conf_array = boxes.conf.cpu().numpy()
+                            xyxy = boxes.xyxy.cpu().numpy()
+                            
+                            # Apply class-specific thresholds after detection
+                            valid_detections = np.zeros_like(cls_array, dtype=bool)
+                            for class_id_str, threshold in self.class_thresholds.items():
+                                class_id = int(class_id_str)
+                                class_mask = (cls_array == class_id) & (conf_array >= float(threshold))
+                                valid_detections |= class_mask
+                            
+                            # Filter boxes based on thresholds
+                            cls_array = cls_array[valid_detections]
+                            conf_array = conf_array[valid_detections]
+                            xyxy = xyxy[valid_detections]
+                            
+                            # Draw bounding boxes
+                            for i in range(len(cls_array)):
+                                x1, y1, x2, y2 = map(int, xyxy[i])
+                                cls = int(cls_array[i])
+                                conf = conf_array[i]
+                                
+                                # Set color based on class
+                                if cls == 0:
+                                    color = (20, 255, 57)  # neon green
+                                elif cls == 1:
+                                    color = (0, 0, 255)    # red
+                                else:
+                                    color = (238, 130, 238)  # violet
+                                
+                                # Draw box and label
+                                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                                label = f"{self.class_names.get(cls, str(cls))} {conf:.2f}"
+                                cv2.putText(annotated_frame, label, (x1, max(y1 - 10, 0)),
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                            # Apply frame colors based on class assignments
+                            if self.frame_config:
+                                # Count detections by frame color
+                                green_count = 0
+                                red_count = 0
+                                
+                                for class_id in np.unique(cls_array):
+                                    count = np.sum(cls_array == class_id)
+                                    assignment = self.frame_config['frame_assignments'].get(str(int(class_id)), "None")
+                                    
+                                    if assignment == "Green Frame":
+                                        green_count += count
+                                    elif assignment == "Red Frame":
+                                        red_count += count
+                                
+                                # Apply frame based on counts and thresholds
+                                if red_count >= self.frame_config['red_threshold']:
+                                    annotated_frame = self.draw_border(annotated_frame, (0, 0, 255), 30)  # Red border
+                                elif green_count >= self.frame_config['green_threshold']:
+                                    annotated_frame = self.draw_border(annotated_frame, (0, 255, 0), 10)  # Green border
+                        else:
+                            annotated_frame = frame.copy()
+                    else:
+                        # Just use the original frame when motion is detected
+                        annotated_frame = frame.copy()
+                        results = None
+                
+                # Convert frame to QImage
+                rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = rgb_frame.shape
+                bytes_per_line = ch * w
+                qt_image = QImage(
+                    rgb_frame.data,
+                    w, h,
+                    bytes_per_line,
+                    QImage.Format.Format_RGB888
+                )
+                
+                # Emit frame with results
+                self.frame_ready.emit(qt_image, [results, max_diff] if self.is_static else [None, max_diff])
+        
+        except Exception as e:
+            logging.error(f"IDS Peak detection error: {e}")
+            self.error.emit(str(e))
+        finally:
+            self.cleanup()
+    
+    def draw_border(self, frame, color, thickness):
+        """Draw colored border around frame."""
+        h, w = frame.shape[:2]
+        return cv2.rectangle(frame, (0, 0), (w, h), color, thickness)
+    
+    def cleanup(self):
+        """Clean up IDS Peak resources."""
+        try:
+            with QMutexLocker(self._lock):
+                # Stop acquisition
+                if self.datastream:
+                    self.datastream.StopAcquisition()
+                
+                if self.remote_device_nodemap:
+                    self.remote_device_nodemap.FindNode("AcquisitionStop").Execute()
+                
+                # Release resources
+                self.datastream = None
+                self.device = None
+                self.remote_device_nodemap = None
+                
+                # Close IDS Peak library
+                ids_peak.Library.Close()
+        except Exception as e:
+            logging.error(f"Error cleaning up IDS Peak camera: {e}")
+    
+    def stop(self):
+        """Stop detection thread."""
+        try:
+            with QMutexLocker(self._lock):
+                self.running = False
+                self.paused = True  # Pause first to avoid frame grab errors
+            
+            # Wait for thread to finish with timeout
+            if not self.wait(500):  # 500ms timeout
+                logging.warning("Detection thread did not stop gracefully, forcing termination")
+                self.terminate()
+                self.wait()
+        except Exception as e:
+            logging.error(f"Error stopping detection thread: {e}")
+            # Ensure thread is terminated even if error occurs
+            self.terminate()
+            self.wait()
+
+class DetectionThread(QThread):
+    """Thread for running object detection."""
+    
+    frame_ready = pyqtSignal(QImage, list)  # frame and detection results
+    error = pyqtSignal(str)
+    
+    def __init__(self, model_path, class_names, camera_id=0, settings=None):
+        super().__init__()
+        self.model_path = model_path
+        self.class_names = class_names
+        self.camera_id = camera_id
+        self.running = False
+        self.camera = None
+        self.model = None
+        self.paused = False
+        self.settings = settings or {}
+        self._lock = QMutex()
+        
+        # Initialize settings
+        self.update_settings(self.settings)
+        
+        # Motion detection state
+        self.prev_gray = None
+        self.is_static = False
+    
+    def update_settings(self, settings):
+        """Update detection settings."""
+        self.motion_threshold = settings.get('motion_threshold', 110)
+        self.threshold = settings.get('class_thresholds', {}).get("0", 0.7)  # Default to 0.7 if not set
+        self.iou_threshold = settings.get('iou_threshold', 0.45)
+        self.class_thresholds = settings.get('class_thresholds', {})
+        self.frame_config = {
+            'frame_assignments': settings.get('frame_assignments', {}),
+            'green_threshold': settings.get('green_threshold', 4),
+            'red_threshold': settings.get('red_threshold', 1)
+        }
+    
+    def run(self):
+        """Main detection loop."""
+        try:
+            with QMutexLocker(self._lock):
+                # Initialize camera
+                self.camera = cv2.VideoCapture(self.camera_id)
+                if not self.camera.isOpened():
+                    raise Exception(f"Could not open camera {self.camera_id}")
+                
+                # Initialize YOLO model
+                self.model = YOLO(self.model_path)
+            
+            self.running = True
+            
+            while self.running:
+                if self.paused:
+                    self.msleep(100)
+                    continue
+                
+                with QMutexLocker(self._lock):
+                    # Capture frame
+                    ret, frame = self.camera.read()
+                    if not ret:
+                        raise Exception("Failed to grab frame")
+                    
+                    # Detect motion
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    if self.prev_gray is None:
+                        self.prev_gray = gray
+                        continue
+                    
+                    diff = cv2.absdiff(gray, self.prev_gray)
+                    max_diff = np.max(diff)
+                    self.prev_gray = gray
+                    
+                    # Update motion state
+                    self.is_static = max_diff < self.motion_threshold
+                    
+                    # Only run detection when static
+                    if self.is_static:
+                        # Run object detection
+                        results = self.model(
+                            frame,
+                            conf=self.threshold,
+                            iou=self.iou_threshold
+                        )[0]
+                        
+                        boxes = results.boxes
+                        annotated_frame = frame.copy()
+                        
+                        if boxes is not None and len(boxes) > 0:
+                            cls_array = boxes.cls.cpu().numpy()
+                            conf_array = boxes.conf.cpu().numpy()
+                            xyxy = boxes.xyxy.cpu().numpy()
+                            
+                            # Apply class-specific thresholds after detection
+                            valid_detections = np.zeros_like(cls_array, dtype=bool)
+                            for class_id_str, threshold in self.class_thresholds.items():
+                                class_id = int(class_id_str)
+                                class_mask = (cls_array == class_id) & (conf_array >= float(threshold))
+                                valid_detections |= class_mask
+                            
+                            # Filter boxes based on thresholds
+                            cls_array = cls_array[valid_detections]
+                            conf_array = conf_array[valid_detections]
+                            xyxy = xyxy[valid_detections]
+                            
+                            # Draw bounding boxes
+                            for i in range(len(cls_array)):
+                                x1, y1, x2, y2 = map(int, xyxy[i])
+                                cls = int(cls_array[i])
+                                conf = conf_array[i]
+                                
+                                # Set color based on class
+                                if cls == 0:
+                                    color = (20, 255, 57)  # neon green
+                                elif cls == 1:
+                                    color = (0, 0, 255)    # red
+                                else:
+                                    color = (238, 130, 238)  # violet
+                                
+                                # Draw box and label
+                                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                                label = f"{self.class_names.get(cls, str(cls))} {conf:.2f}"
+                                cv2.putText(annotated_frame, label, (x1, max(y1 - 10, 0)),
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                            # Apply frame colors based on class assignments
+                            if self.frame_config:
+                                # Count detections by frame color
+                                green_count = 0
+                                red_count = 0
+                                
+                                for class_id in np.unique(cls_array):
+                                    count = np.sum(cls_array == class_id)
+                                    assignment = self.frame_config['frame_assignments'].get(str(int(class_id)), "None")
+                                    
+                                    if assignment == "Green Frame":
+                                        green_count += count
+                                    elif assignment == "Red Frame":
+                                        red_count += count
+                                
+                                # Apply frame based on counts and thresholds
+                                if red_count >= self.frame_config['red_threshold']:
+                                    annotated_frame = self.draw_border(annotated_frame, (0, 0, 255), 30)  # Red border
+                                elif green_count >= self.frame_config['green_threshold']:
+                                    annotated_frame = self.draw_border(annotated_frame, (0, 255, 0), 10)  # Green border
+                        else:
+                            annotated_frame = frame.copy()
+                    else:
+                        # Just use the original frame when motion is detected
+                        annotated_frame = frame.copy()
+                        results = None
+                
+                # Convert frame to QImage
+                rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = rgb_frame.shape
+                bytes_per_line = ch * w
+                qt_image = QImage(
+                    rgb_frame.data,
+                    w, h,
+                    bytes_per_line,
+                    QImage.Format.Format_RGB888
+                )
+                
+                # Emit frame with results
+                self.frame_ready.emit(qt_image, [results, max_diff] if self.is_static else [None, max_diff])
+        
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            # Release resources
+            if self.camera:
+                self.camera.release()
+    
+    def draw_border(self, frame, color, thickness):
+        """Draw colored border around frame."""
+        h, w = frame.shape[:2]
+        return cv2.rectangle(frame, (0, 0), (w, h), color, thickness)
+    
+    def stop(self):
+        """Stop detection thread."""
+        self.running = False
+        self.wait()
+        
+        # Release resources
+        if self.camera:
+            self.camera.release()
 
 class ThresholdSettingsDialog(QDialog):
     """Dialog for configuring detection thresholds."""
@@ -254,193 +752,67 @@ class FrameConfigDialog(QDialog):
             'green_threshold': self.green_threshold.value(),
             'red_threshold': self.red_threshold.value()
         }
-
-class DetectionThread(QThread):
-    """Thread for running object detection."""
-    
-    frame_ready = pyqtSignal(QImage, list)  # frame and detection results
-    error = pyqtSignal(str)
-    
-    def __init__(self, model_path, class_names, camera_id=0):
-        super().__init__()
-        self.model_path = model_path
-        self.class_names = class_names
-        self.camera_id = camera_id
-        self.running = False
-        self.camera = None
-        self.model = None
-        self.paused = False
-        self.frame_config = None
-        
-        # Class-specific thresholds
-        self.class_thresholds = {}
-        self.iou_threshold = 0.45
-        
-        # Motion detection parameters
-        self.prev_gray = None
-        self.static_buffer = []
-        self.in_static_period = False
-        self.evaluation_done = False
-        
-        # Detection parameters
-        self.motion_threshold = 110
-        self.static_frame_min = 3
-        self.confidence_threshold = 0.7
-        
-    def run(self):
-        """Main detection loop."""
-        try:
-            # Initialize camera
-            self.camera = cv2.VideoCapture(self.camera_id)
-            if not self.camera.isOpened():
-                raise Exception("Could not open camera")
-            
-            # Load YOLO model
-            self.model = YOLO(self.model_path)
-            
-            self.running = True
-            while self.running:
-                if self.paused:
-                    self.msleep(100)
-                    continue
-                
-                ret, frame = self.camera.read()
-                if not ret:
-                    raise Exception("Failed to grab frame")
-                
-                # Motion detection
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                if self.prev_gray is None:
-                    self.prev_gray = gray
-                    continue
-                
-                diff = cv2.absdiff(gray, self.prev_gray)
-                max_diff = np.max(diff)
-                self.prev_gray = gray
-                
-                # Process frame based on motion state
-                results = None
-                if max_diff < self.motion_threshold:
-                    self.static_buffer.append(max_diff)
-                    if len(self.static_buffer) > 10:  # Keep last 10 frames
-                        self.static_buffer.pop(0)
-                    # Calculate if period is static based on recent frames
-                    self.in_static_period = np.mean(self.static_buffer) < self.motion_threshold
-                    
-                    # Run detection with IoU threshold
-                    results = self.model(
-                        frame,
-                        iou=self.iou_threshold
-                    )[0]
-                    
-                    boxes = results.boxes
-                    annotated_frame = frame.copy()
-                    
-                    if boxes is not None and len(boxes) > 0:
-                        cls_array = boxes.cls.cpu().numpy()
-                        conf_array = boxes.conf.cpu().numpy()
-                        xyxy = boxes.xyxy.cpu().numpy()
-                        
-                        # Apply class-specific thresholds after detection
-                        valid_detections = np.zeros_like(cls_array, dtype=bool)
-                        for class_id_str, threshold in self.class_thresholds.items():
-                            class_id = int(class_id_str)
-                            class_mask = (cls_array == class_id) & (conf_array >= float(threshold))
-                            valid_detections |= class_mask
-                        
-                        # Filter boxes based on thresholds
-                        cls_array = cls_array[valid_detections]
-                        conf_array = conf_array[valid_detections]
-                        xyxy = xyxy[valid_detections]
-                        
-                        # Draw bounding boxes
-                        for i in range(len(cls_array)):
-                            x1, y1, x2, y2 = map(int, xyxy[i])
-                            cls = int(cls_array[i])
-                            conf = conf_array[i]
-                            
-                            # Set color based on class
-                            if cls == 0:
-                                color = (20, 255, 57)  # neon green
-                            elif cls == 1:
-                                color = (0, 0, 255)    # red
-                            else:
-                                color = (238, 130, 238)  # violet
-                            
-                            # Draw box and label
-                            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                            label = f"{self.class_names.get(cls, str(cls))} {conf:.2f}"
-                            cv2.putText(annotated_frame, label, (x1, max(y1 - 10, 0)),
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                        if self.frame_config:
-                            # Count detections by frame color
-                            green_count = 0
-                            red_count = 0
-                            
-                            for class_id in np.unique(cls_array):
-                                count = np.sum(cls_array == class_id)
-                                assignment = self.frame_config['frame_assignments'].get(str(int(class_id)), "None")
-                                
-                                if assignment == "Green Frame":
-                                    green_count += count
-                                elif assignment == "Red Frame":
-                                    red_count += count
-                            
-                            # Apply frame based on counts and thresholds
-                            if red_count >= self.frame_config['red_threshold']:
-                                annotated_frame = self.draw_border(annotated_frame, (0, 0, 255), 30)  # Red border
-                            elif green_count >= self.frame_config['green_threshold']:
-                                annotated_frame = self.draw_border(annotated_frame, (0, 255, 0), 10)  # Green border
-                    else:
-                        annotated_frame = frame.copy()
-                        
-                else:
-                    # Reset state on motion
-                    self.in_static_period = False
-                    self.static_buffer = []
-                    annotated_frame = frame.copy()
-                
-                # Convert frame to QImage
-                rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb_frame.shape
-                bytes_per_line = ch * w
-                qt_image = QImage(
-                    rgb_frame.data,
-                    w, h,
-                    bytes_per_line,
-                    QImage.Format.Format_RGB888
-                )
-                
-                # Emit frame with results
-                self.frame_ready.emit(qt_image, [results, max_diff] if results else [None, max_diff])
-                
-        except Exception as e:
-            self.error.emit(str(e))
-        finally:
-            if self.camera:
-                self.camera.release()
-    
-    def draw_border(self, frame, color, thickness):
-        """Draw colored border around frame."""
-        h, w = frame.shape[:2]
-        return cv2.rectangle(frame, (0, 0), (w, h), color, thickness)
-    
-    def stop(self):
-        """Stop detection thread."""
-        self.running = False
-        self.wait()
-
 class LiveDetectionApp(QMainWindow):
-    """Main window for live object detection."""
-    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Live Object Detection")
-        self.setGeometry(100, 100, 1200, 800)
+        # Set fullscreen mode
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         
+        # Modern styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f7fa;
+            }
+            QWidget {
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+            }
+            QLabel {
+                color: #37474F;
+                font-size: 14px;
+            }
+            QComboBox {
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+                padding: 6px;
+                background: white;
+                min-width: 150px;
+            }
+            QComboBox:hover {
+                border-color: #2196F3;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #E0E0E0;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+
         # Initialize attributes
         self.detection_thread = None
+        self.ids_peak_thread = None
         
         # Model and class info
         self.model_path = None
@@ -453,60 +825,178 @@ class LiveDetectionApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
         
-        # Controls
-        controls_layout = QHBoxLayout()
+        # Controls panel with modern styling
+        controls_panel = QWidget()
+        controls_panel.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+        """)
+        controls_layout = QHBoxLayout(controls_panel)
+        controls_layout.setSpacing(15)
+        controls_layout.setContentsMargins(15, 15, 15, 15)
         
-        # Model selection
-        model_label = QLabel("Model (.pt):")
-        self.model_path_label = QLabel("Not selected")
-        model_btn = QPushButton("Browse")
+        # Model selection with icon
+        model_group = QGroupBox("Model Selection")
+        model_layout = QVBoxLayout()
+        
+        model_btn = QPushButton("Browse Model")
+        model_btn.setIcon(QIcon.fromTheme("document-open"))
         model_btn.clicked.connect(self.browse_model)
         
+        self.model_path_label = QLabel("Not selected")
+        self.model_path_label.setStyleSheet("color: #666;")
+        
+        model_layout.addWidget(model_btn)
+        model_layout.addWidget(self.model_path_label)
+        model_group.setLayout(model_layout)
+        controls_layout.addWidget(model_group)
+        
         # YAML selection
-        yaml_label = QLabel("Data (.yaml):")
-        self.yaml_path_label = QLabel("Not selected")
-        yaml_btn = QPushButton("Browse")
+        yaml_group = QGroupBox("Dataset Configuration")
+        yaml_layout = QVBoxLayout()
+        
+        yaml_btn = QPushButton("Browse YAML")
+        yaml_btn.setIcon(QIcon.fromTheme("text-x-generic"))
         yaml_btn.clicked.connect(self.browse_yaml)
         
-        # Connect button
-        self.connect_btn = QPushButton("Start Detection")
-        self.connect_btn.clicked.connect(self.toggle_detection)
-        self.connect_btn.setEnabled(False)
+        self.yaml_path_label = QLabel("Not selected")
+        self.yaml_path_label.setStyleSheet("color: #666;")
         
-        controls_layout.addWidget(model_label)
-        controls_layout.addWidget(self.model_path_label)
-        controls_layout.addWidget(model_btn)
-        controls_layout.addWidget(yaml_label)
-        controls_layout.addWidget(self.yaml_path_label)
-        controls_layout.addWidget(yaml_btn)
-        controls_layout.addWidget(self.connect_btn)
-        layout.addLayout(controls_layout)
+        yaml_layout.addWidget(yaml_btn)
+        yaml_layout.addWidget(self.yaml_path_label)
+        yaml_group.setLayout(yaml_layout)
+        controls_layout.addWidget(yaml_group)
+        
+        # Camera selection
+        camera_group = QGroupBox("Camera")
+        camera_layout = QVBoxLayout()
+        
+        self.camera_combo = QComboBox()
+        self.camera_combo.addItem("USB Camera")
+        if IDS_PEAK_AVAILABLE:
+            self.camera_combo.addItem("IDS Peak Camera")
+        
+        self.connect_btn = QPushButton("Start Detection")
+        self.connect_btn.setEnabled(False)
+        self.connect_btn.clicked.connect(self.toggle_detection)
+        
+        camera_layout.addWidget(self.camera_combo)
+        camera_layout.addWidget(self.connect_btn)
+        camera_group.setLayout(camera_layout)
+        controls_layout.addWidget(camera_group)
+        
+        layout.addWidget(controls_panel)
 
-        # Settings buttons
-        settings_layout = QHBoxLayout()
-        threshold_btn = QPushButton("Detection Settings...")
+        # Settings buttons with modern styling
+        settings_panel = QWidget()
+        settings_panel.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+            }
+            QPushButton {
+                background-color: #4CAF50;
+            }
+            QPushButton:hover {
+                background-color: #43A047;
+            }
+        """)
+        settings_layout = QHBoxLayout(settings_panel)
+        
+        threshold_btn = QPushButton("Detection Settings")
         threshold_btn.clicked.connect(self.show_threshold_settings)
-        frame_btn = QPushButton("Frame Settings...")
+        
+        frame_btn = QPushButton("Frame Settings")
         frame_btn.clicked.connect(self.show_frame_settings)
+        
         settings_layout.addWidget(threshold_btn)
         settings_layout.addWidget(frame_btn)
-        layout.addLayout(settings_layout)
+        layout.addWidget(settings_panel)
         
-        # Video display
+        # Video display with border
+        video_container = QWidget()
+        video_container.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        video_layout = QVBoxLayout(video_container)
+        
         self.video_label = QLabel()
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_label.setMinimumSize(800, 600)
-        self.video_label.setStyleSheet("background-color: black;")
-        layout.addWidget(self.video_label)
+        self.video_label.setStyleSheet("""
+            QLabel {
+                background-color: black;
+                border-radius: 4px;
+            }
+        """)
+        video_layout.addWidget(self.video_label)
+        layout.addWidget(video_container)
         
-        # Status display
+        # Status display with modern styling
+        status_container = QWidget()
+        status_container.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                padding: 10px;
+            }
+            QLabel {
+                color: #2196F3;
+                font-weight: bold;
+            }
+        """)
+        status_layout = QVBoxLayout(status_container)
+        
         self.status_label = QLabel()
-        status_font = QFont()
-        status_font.setPointSize(12)
-        self.status_label.setFont(status_font)
+        self.status_label.setFont(QFont("Segoe UI", 12))
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.status_label)
+        status_layout.addWidget(self.status_label)
+        layout.addWidget(status_container)
+
+    def closeEvent(self, event):
+        """Handle window close event."""
+        try:
+            # Stop detection threads if running
+            if self.detection_thread and self.detection_thread.running:
+                self.detection_thread.stop()
+                self.detection_thread = None
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.stop()
+                self.ids_peak_thread = None
+            
+            # Save settings
+            self.save_settings()
+            
+            # Accept the close event
+            event.accept()
+            
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+            # Still accept the close event even if there was an error
+            event.accept()
+
+    def hideEvent(self, event):
+        """Handle window hide event."""
+        try:
+            # Stop detection when window is hidden
+            if self.detection_thread and self.detection_thread.running:
+                self.detection_thread.stop()
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.stop()
+            event.accept()
+        except Exception as e:
+            logging.error(f"Error handling hide event: {e}")
+            event.accept()
         
     def browse_model(self):
         """Open file dialog to select YOLO model."""
@@ -574,10 +1064,9 @@ class LiveDetectionApp(QMainWindow):
             self.save_settings()
             # Update running thread if active
             if self.detection_thread and self.detection_thread.running:
-                self.detection_thread.motion_threshold = self.settings.get('motion_threshold', 110)
-                self.detection_thread.static_frame_min = self.settings.get('static_frame_min', 3)
-                self.detection_thread.iou_threshold = self.settings.get('iou_threshold', 0.45)
-                self.detection_thread.class_thresholds = self.settings.get('class_thresholds', {})
+                self.detection_thread.update_settings(self.settings)
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.update_settings(self.settings)
     
     def show_frame_settings(self):
         """Show frame configuration dialog."""
@@ -591,11 +1080,9 @@ class LiveDetectionApp(QMainWindow):
             self.save_settings()
             # Update running thread if active
             if self.detection_thread and self.detection_thread.running:
-                self.detection_thread.frame_config = {
-                    'frame_assignments': self.settings.get('frame_assignments', {}),
-                    'green_threshold': self.settings.get('green_threshold', 4),
-                    'red_threshold': self.settings.get('red_threshold', 1)
-                }
+                self.detection_thread.update_settings(self.settings)
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.update_settings(self.settings)
     
     def check_ready(self):
         """Check if all required files are selected."""
@@ -606,11 +1093,17 @@ class LiveDetectionApp(QMainWindow):
     
     def toggle_detection(self):
         """Start or stop detection."""
-        if self.detection_thread and self.detection_thread.running:
+        if (self.detection_thread and self.detection_thread.running) or \
+           (self.ids_peak_thread and self.ids_peak_thread.running):
             try:
                 # Stop detection
-                self.detection_thread.stop()
-                self.detection_thread = None
+                if self.detection_thread:
+                    self.detection_thread.stop()
+                    self.detection_thread = None
+                if self.ids_peak_thread:
+                    self.ids_peak_thread.stop()
+                    self.ids_peak_thread = None
+                
                 self.connect_btn.setText("Start Detection")
                 self.status_label.clear()
                 self.video_label.clear()
@@ -620,36 +1113,50 @@ class LiveDetectionApp(QMainWindow):
         else:
             # Start detection
             try:
-                # Show camera selection dialog
-                camera_dialog = CameraSelectionDialog(self)
-                if camera_dialog.exec() != QDialog.DialogCode.Accepted:
-                    return
+                camera_type = self.camera_combo.currentText()
                 
-                camera_id = camera_dialog.get_selected_camera()
-                if camera_id is None:
-                    QMessageBox.critical(self, "Error", "No camera selected")
-                    return
-                
-                self.detection_thread = DetectionThread(
-                    model_path=self.model_path,
-                    class_names=self.class_names,
-                    camera_id=camera_id
-                )
-                
-                # Update parameters
-                self.detection_thread.motion_threshold = self.settings.get('motion_threshold', 110)
-                self.detection_thread.static_frame_min = self.settings.get('static_frame_min', 3)
-                self.detection_thread.iou_threshold = self.settings.get('iou_threshold', 0.45)
-                self.detection_thread.class_thresholds = self.settings.get('class_thresholds', {})
-                self.detection_thread.frame_config = {
-                    'frame_assignments': self.settings.get('frame_assignments', {}),
-                    'green_threshold': self.settings.get('green_threshold', 4),
-                    'red_threshold': self.settings.get('red_threshold', 1)
-                }
-                
-                self.detection_thread.frame_ready.connect(self.update_frame)
-                self.detection_thread.error.connect(self.handle_error)
-                self.detection_thread.start()
+                # Show camera selection dialog based on type
+                if "IDS Peak" in camera_type and IDS_PEAK_AVAILABLE:
+                    camera_dialog = CameraSelectionDialog(self)
+                    if camera_dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    
+                    camera_info = camera_dialog.get_selected_camera()
+                    if camera_info is None or camera_info[0] != "ids_peak":
+                        QMessageBox.warning(self, "Warning", "No IDS Peak camera selected")
+                        return
+                    
+                    # Start IDS Peak detection thread
+                    self.ids_peak_thread = IDSPeakDetectionThread(
+                        model_path=self.model_path,
+                        class_names=self.class_names,
+                        camera_id=camera_info[2],
+                        settings=self.settings
+                    )
+                    self.ids_peak_thread.frame_ready.connect(self.update_frame)
+                    self.ids_peak_thread.error.connect(self.handle_error)
+                    self.ids_peak_thread.start()
+                else:
+                    # Show USB camera selection dialog
+                    camera_dialog = CameraSelectionDialog(self)
+                    if camera_dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    
+                    camera_info = camera_dialog.get_selected_camera()
+                    if camera_info is None:
+                        QMessageBox.critical(self, "Error", "No camera selected")
+                        return
+                    
+                    # Start USB detection thread
+                    self.detection_thread = DetectionThread(
+                        model_path=self.model_path,
+                        class_names=self.class_names,
+                        camera_id=camera_info[2],
+                        settings=self.settings
+                    )
+                    self.detection_thread.frame_ready.connect(self.update_frame)
+                    self.detection_thread.error.connect(self.handle_error)
+                    self.detection_thread.start()
                 
                 self.connect_btn.setText("Stop Detection")
                 
@@ -684,7 +1191,7 @@ class LiveDetectionApp(QMainWindow):
                         status_parts.append(f"{self.class_names[class_id]}: {count}")
                     status_parts.extend([
                         f"Motion: {results[1]:.2f}",
-                        f"Static: {self.detection_thread.in_static_period}"
+                        f"Static: {self.detection_thread.is_static if self.detection_thread else self.ids_peak_thread.is_static if self.ids_peak_thread else False}"
                     ])
                     status = " | ".join(status_parts)
                     self.status_label.setText(status)
@@ -700,4 +1207,8 @@ class LiveDetectionApp(QMainWindow):
         """Handle window close event."""
         if self.detection_thread and self.detection_thread.running:
             self.detection_thread.stop()
+            self.detection_thread = None
+        if self.ids_peak_thread and self.ids_peak_thread.running:
+            self.ids_peak_thread.stop()
+            self.ids_peak_thread = None
         event.accept()

@@ -1,4 +1,4 @@
-# 1. Task: Bilder aufzeichnen und speichern ("Schnappschuss")
+"""Main application module for camera capture."""
 
 import sys
 import os
@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QDialog, QMenu,
-    QLabel, QComboBox, QFileDialog, QMessageBox, QProgressBar, QListWidget, QListWidgetItem
+    QLabel, QComboBox, QFileDialog, QMessageBox, QProgressBar, QListWidget, QListWidgetItem,
+    QApplication
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QFileSystemWatcher, QMutex, QMutexLocker
 from PyQt6.QtGui import QImage, QPixmap, QKeyEvent, QFont, QColor, QPalette, QAction
@@ -29,6 +30,16 @@ except ImportError:
     NXT_AVAILABLE = False
     logger.warning("NXT camera support not available")
 
+# Add IDS Peak API support
+try:
+    import ids_peak.ids_peak as ids_peak
+    import ids_peak_ipl.ids_peak_ipl as ids_ipl
+    import ids_peak.ids_peak_ipl_extension as ids_ipl_extension
+    IDS_PEAK_AVAILABLE = True
+except ImportError:
+    IDS_PEAK_AVAILABLE = False
+    logger.warning("IDS Peak API nicht verfügbar. Installiere IDS Peak API und IDS Peak Software.")
+
 class CameraSelectionDialog(QDialog):
     """Dialog for selecting a camera device."""
     
@@ -44,10 +55,30 @@ class CameraSelectionDialog(QDialog):
         self.camera_list = QListWidget()
         layout.addWidget(self.camera_list)
         
-        # Populate camera list
-        self.available_cameras = self.find_cameras()
-        for i, (name, _) in enumerate(self.available_cameras):
-            item = QListWidgetItem(f"Kamera {i}: {name}")
+        # Populate camera list with various camera types
+        self.available_cameras = []
+        
+        # Add USB cameras
+        usb_cameras = self.find_usb_cameras()
+        self.available_cameras.extend([("usb", name, idx) for name, idx in usb_cameras])
+        
+        # Add IDS Peak cameras if available
+        if IDS_PEAK_AVAILABLE:
+            ids_cameras = self.find_ids_peak_cameras()
+            self.available_cameras.extend([("ids_peak", name, idx) for name, idx in ids_cameras])
+        
+        # Add NXT cameras if available
+        if NXT_AVAILABLE:
+            self.available_cameras.append(("nxt", "IDS NXT Camera", 0))
+        
+        # Add camera items to the list
+        for i, (cam_type, name, _) in enumerate(self.available_cameras):
+            if cam_type == "usb":
+                item = QListWidgetItem(f"USB-Kamera {i}: {name}")
+            elif cam_type == "ids_peak":
+                item = QListWidgetItem(f"IDS Peak: {name}")
+            elif cam_type == "nxt":
+                item = QListWidgetItem(f"IDS NXT: {name}")
             self.camera_list.addItem(item)
         
         if not self.available_cameras:
@@ -67,27 +98,214 @@ class CameraSelectionDialog(QDialog):
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
     
-    def find_cameras(self):
-        """Find available camera devices."""
+    def find_usb_cameras(self):
+        """Find available USB camera devices."""
         available_cameras = []
         # Try opening each camera index
         for i in range(10):  # Check first 10 indexes
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                # Get camera name if possible
-                name = cap.getBackendName()
-                available_cameras.append((name, i))
-                cap.release()
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    # Get camera name if possible
+                    name = cap.getBackendName()
+                    available_cameras.append((name, i))
+                    cap.release()
+            except Exception as e:
+                logger.warning(f"Error checking USB camera {i}: {e}")
         return available_cameras
     
+    def find_ids_peak_cameras(self):
+        """Find available IDS Peak camera devices."""
+        try:
+            # Initialize IDS Peak library
+            ids_peak.Library.Initialize()
+            
+            # Get device manager and update device list
+            device_manager = ids_peak.DeviceManager.Instance()
+            device_manager.Update()
+            
+            # Get available devices
+            device_descriptors = device_manager.Devices()
+            
+            # Return list of available cameras
+            cameras = [(device.DisplayName(), i) for i, device in enumerate(device_descriptors)]
+            
+            return cameras
+        except Exception as e:
+            logger.warning(f"Error finding IDS Peak cameras: {e}")
+            return []
+    
     def get_selected_camera(self):
-        """Get the selected camera index."""
+        """Get the selected camera info."""
         if not self.available_cameras:
             return None
         current_row = self.camera_list.currentRow()
         if current_row >= 0:
-            return self.available_cameras[current_row][1]
+            return self.available_cameras[current_row]
         return None
+
+class IDSPeakCameraThread(QThread):
+    """Thread for IDS Peak camera operations."""
+    
+    frame_ready = pyqtSignal(QImage)
+    error = pyqtSignal(str)
+    
+    def __init__(self, camera_id=0):
+        super().__init__()
+        self.camera_id = camera_id
+        self.running = False
+        self.device = None
+        self.datastream = None
+        self.remote_device_nodemap = None
+        self.current_frame = None
+        self.paused = False
+        self._lock = QMutex()
+    
+    def run(self):
+        """Main camera loop."""
+        try:
+            with QMutexLocker(self._lock):
+                # Initialize IDS Peak API
+                ids_peak.Library.Initialize()
+                
+                # Get device manager and update device list
+                device_manager = ids_peak.DeviceManager.Instance()
+                device_manager.Update()
+                
+                # Get available devices
+                device_descriptors = device_manager.Devices()
+                if not device_descriptors:
+                    raise Exception("No IDS Peak cameras found")
+                
+                # Open selected camera
+                if self.camera_id < len(device_descriptors):
+                    device_descriptor = device_descriptors[self.camera_id]
+                else:
+                    device_descriptor = device_descriptors[0]
+                
+                self.device = device_descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
+                self.remote_device_nodemap = self.device.RemoteDevice().NodeMaps()[1]
+                
+                # Configure camera for continuous acquisition
+                self.remote_device_nodemap.FindNode("TriggerSelector").SetCurrentEntry("ExposureStart")
+                self.remote_device_nodemap.FindNode("TriggerSource").SetCurrentEntry("Software")
+                self.remote_device_nodemap.FindNode("TriggerMode").SetCurrentEntry("Off")
+                
+                # Prepare datastream
+                self.datastream = self.device.DataStreams()[0].OpenDataStream()
+                payload_size = self.remote_device_nodemap.FindNode("PayloadSize").Value()
+                
+                # Allocate buffers
+                for i in range(self.datastream.NumBuffersAnnouncedMinRequired()):
+                    buffer = self.datastream.AllocAndAnnounceBuffer(payload_size)
+                    self.datastream.QueueBuffer(buffer)
+                
+                # Start acquisition
+                self.datastream.StartAcquisition()
+                self.remote_device_nodemap.FindNode("AcquisitionStart").Execute()
+                self.remote_device_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+            
+            self.running = True
+            
+            while self.running:
+                if self.paused:
+                    self.msleep(100)
+                    continue
+                
+                try:
+                    with QMutexLocker(self._lock):
+                        # Capture frame from camera
+                        buffer = self.datastream.WaitForFinishedBuffer(1000)
+                        
+                        # Convert buffer to image
+                        raw_image = ids_ipl_extension.BufferToImage(buffer)
+                        color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
+                        
+                        # Queue buffer for next frame
+                        self.datastream.QueueBuffer(buffer)
+                        
+                        # Convert to NumPy array
+                        frame = color_image.get_numpy_3D()
+                        
+                        # Convert to BGR for OpenCV
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        
+                        # Store frame
+                        self.current_frame = frame.copy()
+                        
+                        # Convert to QImage for display
+                        h, w, ch = frame.shape
+                        bytes_per_line = ch * w
+                        qt_image = QImage(
+                            cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).data,
+                            w, h,
+                            bytes_per_line,
+                            QImage.Format.Format_RGB888
+                        ).copy()
+                        
+                        # Emit frame
+                        self.frame_ready.emit(qt_image)
+                except Exception as e:
+                    logger.error(f"Error capturing IDS Peak frame: {e}")
+                    # Don't emit error here, just log it and continue
+                    self.msleep(100)
+        
+        except Exception as e:
+            logger.error(f"IDS Peak camera error: {e}")
+            self.error.emit(f"IDS Peak camera error: {e}")
+        finally:
+            self.cleanup()
+    
+    def cleanup(self):
+        """Clean up IDS Peak resources."""
+        try:
+            with QMutexLocker(self._lock):
+                # Stop acquisition
+                if self.datastream:
+                    try:
+                        self.datastream.StopAcquisition()
+                    except Exception as e:
+                        logger.error(f"Error stopping datastream acquisition: {e}")
+                
+                if self.remote_device_nodemap:
+                    try:
+                        self.remote_device_nodemap.FindNode("AcquisitionStop").Execute()
+                    except Exception as e:
+                        logger.error(f"Error executing acquisition stop: {e}")
+                
+                # Release resources
+                self.datastream = None
+                self.device = None
+                self.remote_device_nodemap = None
+                
+                # Close IDS Peak library
+                try:
+                    ids_peak.Library.Close()
+                except Exception as e:
+                    logger.error(f"Error closing IDS Peak library: {e}")
+        except Exception as e:
+            logger.error(f"Error cleaning up IDS Peak camera: {e}")
+    
+    def stop(self):
+        """Stop camera thread."""
+        try:
+            with QMutexLocker(self._lock):
+                self.running = False
+                self.paused = True  # Pause first to avoid frame grab errors
+            
+            # Wait for thread to finish with timeout
+            if not self.wait(500):  # 500ms timeout
+                logger.warning("Camera thread did not stop gracefully, forcing termination")
+                self.terminate()
+                self.wait()
+            
+            # Do cleanup again to ensure everything is closed properly
+            self.cleanup()
+        except Exception as e:
+            logger.error(f"Error stopping camera thread: {e}")
+            # Ensure thread is terminated even if error occurs
+            self.terminate()
+            self.wait()
 
 class CameraThread(QThread):
     """Thread for camera operations."""
@@ -98,7 +316,7 @@ class CameraThread(QThread):
     def __init__(self, camera_type='usb', camera_id=0, nxt_config=None):
         super().__init__()
         self.camera_type = camera_type
-        self.camera_id = int(camera_id)  # Ensure camera_id is int
+        self.camera_id = int(camera_id) if camera_id is not None else 0  # Ensure camera_id is int
         self.nxt_config = nxt_config
         self.running = False
         self.camera = None
@@ -114,7 +332,7 @@ class CameraThread(QThread):
                     self.camera = cv2.VideoCapture(self.camera_id)
                     if not self.camera.isOpened():
                         raise Exception(f"Konnte USB-Kamera {self.camera_id} nicht öffnen")
-                else:
+                elif self.camera_type == 'nxt':
                     if not NXT_AVAILABLE:
                         raise Exception("NXT camera support not available")
                     self.camera = NxtCamera(
@@ -123,6 +341,8 @@ class CameraThread(QThread):
                         password=self.nxt_config['password'],
                         ssl=self.nxt_config['ssl']
                     )
+                else:
+                    raise Exception(f"Unsupported camera type: {self.camera_type}")
             
             self.running = True
             while self.running:
@@ -130,28 +350,35 @@ class CameraThread(QThread):
                     self.msleep(100)
                     continue
                     
-                with QMutexLocker(self._lock):
-                    if self.camera_type == 'usb':
-                        ret, frame = self.camera.read()
-                        if not ret:
-                            raise Exception("Konnte kein Bild von der USB-Kamera empfangen")
-                    else:
-                        frame = self.camera.get_frame()
-                    
-                    # Store original frame
-                    self.current_frame = frame.copy()
-                    
-                    # Convert frame to QImage
-                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    h, w, ch = rgb_frame.shape
-                    bytes_per_line = ch * w
-                    qt_image = QImage(
-                        rgb_frame.data,
-                        w, h,
-                        bytes_per_line,
-                        QImage.Format.Format_RGB888
-                    )
-                    self.frame_ready.emit(qt_image)
+                try:
+                    with QMutexLocker(self._lock):
+                        if self.camera_type == 'usb':
+                            ret, frame = self.camera.read()
+                            if not ret:
+                                raise Exception("Konnte kein Bild von der USB-Kamera empfangen")
+                        elif self.camera_type == 'nxt':
+                            frame = self.camera.get_frame()
+                        else:
+                            raise Exception(f"Unsupported camera type: {self.camera_type}")
+                        
+                        # Store original frame
+                        self.current_frame = frame.copy()
+                        
+                        # Convert frame to QImage
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        h, w, ch = rgb_frame.shape
+                        bytes_per_line = ch * w
+                        qt_image = QImage(
+                            rgb_frame.data,
+                            w, h,
+                            bytes_per_line,
+                            QImage.Format.Format_RGB888
+                        ).copy()
+                        self.frame_ready.emit(qt_image)
+                except Exception as e:
+                    logger.error(f"Error capturing frame: {e}")
+                    # Don't emit error here, just log it and continue
+                    self.msleep(100)
                 
         except Exception as e:
             self.error.emit(f"Kamera-Fehler: {str(e)}")
@@ -159,7 +386,7 @@ class CameraThread(QThread):
             if self.camera:
                 if self.camera_type == 'usb':
                     self.camera.release()
-                else:
+                elif self.camera_type == 'nxt':
                     self.camera.disconnect()
     
     @property
@@ -186,7 +413,7 @@ class CameraThread(QThread):
                     logger.info("Releasing camera resources...")
                     if self.camera_type == 'usb':
                         self.camera.release()
-                    else:
+                    elif self.camera_type == 'nxt':
                         self.camera.disconnect()
                 self.camera = None
                 
@@ -195,7 +422,6 @@ class CameraThread(QThread):
             # Ensure thread is terminated even if error occurs
             self.terminate()
             self.wait()
-            raise  # Re-raise exception to be handled by caller
 
 class ThumbnailWidget(QLabel):
     """Widget for displaying image thumbnails."""
@@ -261,6 +487,7 @@ class CameraApp(QMainWindow):
         
         # Initialize attributes
         self.camera_thread = None
+        self.ids_peak_thread = None
         self.output_dir = None
         
         # Split into left (camera) and right (gallery) panels
@@ -279,6 +506,8 @@ class CameraApp(QMainWindow):
         camera_label = QLabel("Camera Type:")
         self.camera_combo = QComboBox()
         self.camera_combo.addItem("USB Camera")
+        if IDS_PEAK_AVAILABLE:
+            self.camera_combo.addItem("IDS Peak Camera")
         if NXT_AVAILABLE:
             self.camera_combo.addItem("IDS NXT Camera")
         self.camera_combo.currentTextChanged.connect(self.on_camera_changed)
@@ -372,19 +601,25 @@ class CameraApp(QMainWindow):
         
     def on_camera_changed(self, camera_type):
         """Handle camera type change."""
-        if self.camera_thread and self.camera_thread.running:
+        if (self.camera_thread and self.camera_thread.running) or \
+           (self.ids_peak_thread and self.ids_peak_thread.running):
             self.toggle_camera()  # Disconnect current camera
     
     def toggle_camera(self):
         """Connect or disconnect camera."""
-        if self.camera_thread and self.camera_thread.running:
+        if (self.camera_thread and self.camera_thread.running) or \
+           (self.ids_peak_thread and self.ids_peak_thread.running):
             try:
                 # Stop camera thread first
                 logger.info("Stopping camera thread...")
-                self.camera_thread.stop()
+                if self.camera_thread:
+                    self.camera_thread.stop()
+                    self.camera_thread = None
+                if self.ids_peak_thread:
+                    self.ids_peak_thread.stop()
+                    self.ids_peak_thread = None
                 
                 # Reset UI state
-                self.camera_thread = None
                 self.connect_btn.setText("Connect")
                 self.capture_btn.setEnabled(False)
                 self.statusBar().showMessage("Camera disconnected")
@@ -400,9 +635,9 @@ class CameraApp(QMainWindow):
         else:
             # Connect
             try:
-                camera_type = 'nxt' if "NXT" in self.camera_combo.currentText() else 'usb'
+                camera_type = self.camera_combo.currentText()
                 
-                if camera_type == 'nxt':
+                if "IDS NXT" in camera_type:
                     # Show NXT camera config dialog
                     nxt_config = {
                         'ip': '169.254.100.99',
@@ -410,26 +645,53 @@ class CameraApp(QMainWindow):
                         'password': 'Flex',
                         'ssl': False
                     }
-                    camera_id = 0
+                    self.camera_thread = CameraThread(
+                        camera_type='nxt',
+                        camera_id=0,
+                        nxt_config=nxt_config
+                    )
+                    self.camera_thread.frame_ready.connect(self.update_frame)
+                    self.camera_thread.error.connect(self.handle_error)
+                    self.camera_thread.start()
+                elif "IDS Peak" in camera_type:
+                    # Show IDS Peak camera selection dialog
+                    if IDS_PEAK_AVAILABLE:
+                        camera_dialog = CameraSelectionDialog(self)
+                        if camera_dialog.exec() != QDialog.DialogCode.Accepted:
+                            return
+                        camera_info = camera_dialog.get_selected_camera()
+                        if camera_info is None or camera_info[0] != "ids_peak":
+                            QMessageBox.warning(self, "Warnung", "Keine IDS Peak Kamera ausgewählt")
+                            return
+                        
+                        # Start IDS Peak camera thread
+                        self.ids_peak_thread = IDSPeakCameraThread(
+                            camera_id=camera_info[2]
+                        )
+                        self.ids_peak_thread.frame_ready.connect(self.update_frame)
+                        self.ids_peak_thread.error.connect(self.handle_error)
+                        self.ids_peak_thread.start()
+                    else:
+                        QMessageBox.critical(self, "Fehler", "IDS Peak API nicht verfügbar")
+                        return
                 else:
                     # Show USB camera selection dialog
                     camera_dialog = CameraSelectionDialog(self)
                     if camera_dialog.exec() != QDialog.DialogCode.Accepted:
                         return
-                    camera_id = camera_dialog.get_selected_camera()
-                    if camera_id is None:
+                    camera_info = camera_dialog.get_selected_camera()
+                    if camera_info is None:
                         QMessageBox.warning(self, "Warnung", "Keine Kamera ausgewählt")
                         return
-                    nxt_config = None
-                
-                self.camera_thread = CameraThread(
-                    camera_type=camera_type,
-                    camera_id=camera_id,
-                    nxt_config=nxt_config
-                )
-                self.camera_thread.frame_ready.connect(self.update_frame)
-                self.camera_thread.error.connect(self.handle_error)
-                self.camera_thread.start()
+                    camera_id = camera_info[2]
+                    
+                    self.camera_thread = CameraThread(
+                        camera_type='usb',
+                        camera_id=camera_id
+                    )
+                    self.camera_thread.frame_ready.connect(self.update_frame)
+                    self.camera_thread.error.connect(self.handle_error)
+                    self.camera_thread.start()
                 
                 self.connect_btn.setText("Disconnect")
                 self.capture_btn.setEnabled(True)
@@ -453,40 +715,66 @@ class CameraApp(QMainWindow):
             QMessageBox.critical(self, "Kamera-Fehler", message)
             if self.camera_thread and self.camera_thread.running:
                 self.toggle_camera()  # Disconnect on error
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.toggle_camera()  # Disconnect on error
         except Exception as e:
             logger.error(f"Error handling camera error: {e}")
     
     def browse_directory(self):
         """Open file dialog to select output directory."""
-        dir_path = QFileDialog.getExistingDirectory(
-            self, "Select Output Directory"
-        )
-        if dir_path:
-            try:
-                # Test write permissions
-                test_file = Path(dir_path) / ".test"
-                test_file.touch()
-                test_file.unlink()
-                
-                self.output_dir = dir_path
-                self.dir_label.setText(f"Output Directory: {dir_path}")
-                
-                # Set up directory monitoring
-                if self.output_dir in self.watcher.directories():
-                    self.watcher.removePath(self.output_dir)
-                self.watcher.addPath(self.output_dir)
-                
-                # Load existing images
-                self.refresh_gallery()
-                
-                self.statusBar().showMessage("Output directory set")
-                
-            except Exception as e:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Cannot write to selected directory: {str(e)}"
-                )
+        try:
+            # Pause camera threads while showing dialog
+            camera_was_running = False
+            ids_peak_was_running = False
+            
+            if self.camera_thread and self.camera_thread.running:
+                camera_was_running = True
+                self.camera_thread.paused = True
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                ids_peak_was_running = True
+                self.ids_peak_thread.paused = True
+            
+            # Allow UI to update before showing dialog
+            QApplication.processEvents()
+            
+            dir_path = QFileDialog.getExistingDirectory(
+                self, "Select Output Directory"
+            )
+            
+            if dir_path:
+                try:
+                    # Test write permissions
+                    test_file = Path(dir_path) / ".test"
+                    test_file.touch()
+                    test_file.unlink()
+                    
+                    self.output_dir = dir_path
+                    self.dir_label.setText(f"Output Directory: {dir_path}")
+                    
+                    # Set up directory monitoring
+                    if self.output_dir in self.watcher.directories():
+                        self.watcher.removePath(self.output_dir)
+                    self.watcher.addPath(self.output_dir)
+                    
+                    # Load existing images
+                    self.refresh_gallery()
+                    
+                    self.statusBar().showMessage("Output directory set")
+                    
+                except Exception as e:
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        f"Cannot write to selected directory: {str(e)}"
+                    )
+        except Exception as e:
+            logger.error(f"Error selecting output directory: {e}")
+        finally:
+            # Resume camera threads if they were running
+            if camera_was_running and self.camera_thread and self.camera_thread.running:
+                self.camera_thread.paused = False
+            if ids_peak_was_running and self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.paused = False
     
     def capture_image(self):
         """Capture and save current frame."""
@@ -499,29 +787,56 @@ class CameraApp(QMainWindow):
             return
         
         try:
-            # Pause camera thread while capturing
-            self.camera_thread.paused = True
+            # Get frame from correct thread
+            if self.camera_thread and self.camera_thread.running:
+                # Pause camera thread while capturing
+                self.camera_thread.paused = True
+                
+                # Get original resolution frame
+                if self.camera_thread.current_frame is None:
+                    raise Exception("No frame available")
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"capture_{timestamp}.jpg"
+                filepath = Path(self.output_dir) / filename
+                
+                # Save original resolution image
+                success = cv2.imwrite(
+                    str(filepath),
+                    self.camera_thread.current_frame
+                )
+                
+                # Resume camera thread
+                self.camera_thread.paused = False
+            elif self.ids_peak_thread and self.ids_peak_thread.running:
+                # Pause camera thread while capturing
+                self.ids_peak_thread.paused = True
+                
+                # Get original resolution frame
+                if self.ids_peak_thread.current_frame is None:
+                    raise Exception("No frame available")
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"capture_{timestamp}.jpg"
+                filepath = Path(self.output_dir) / filename
+                
+                # Save original resolution image
+                success = cv2.imwrite(
+                    str(filepath),
+                    self.ids_peak_thread.current_frame
+                )
+                
+                # Resume camera thread
+                self.ids_peak_thread.paused = False
+            else:
+                raise Exception("No active camera")
             
-            # Get original resolution frame
-            if not self.camera_thread or not self.camera_thread.current_frame is not None:
-                raise Exception("No frame available")
-            
-            # Generate filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"capture_{timestamp}.jpg"
-            filepath = Path(self.output_dir) / filename
-            
-            # Save original resolution image
-            success = cv2.imwrite(
-                str(filepath),
-                self.camera_thread.current_frame
-            )
             if not success:
                 raise Exception("Failed to save image")
             
             self.statusBar().showMessage(f"Image saved: {filename}")
-            # Resume camera thread
-            self.camera_thread.paused = False
             
             # Add thumbnail to gallery
             self.add_thumbnail(str(filepath))
@@ -535,8 +850,11 @@ class CameraApp(QMainWindow):
                 "Error",
                 f"Failed to save image: {str(e)}"
             )
-            if self.camera_thread:
+            # Resume camera if error
+            if self.camera_thread and self.camera_thread.running:
                 self.camera_thread.paused = False
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.paused = False
     
     def add_thumbnail(self, image_path):
         """Add thumbnail to gallery."""
@@ -620,7 +938,26 @@ class CameraApp(QMainWindow):
             
             layout.addLayout(close_layout)
             
+            # Pause camera while viewing image
+            was_camera_running = False
+            was_ids_running = False
+            
+            if self.camera_thread and self.camera_thread.running:
+                was_camera_running = True
+                self.camera_thread.paused = True
+            
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                was_ids_running = True
+                self.ids_peak_thread.paused = True
+                
             dialog.exec()
+            
+            # Resume camera after dialog closes
+            if was_camera_running and self.camera_thread and self.camera_thread.running:
+                self.camera_thread.paused = False
+                
+            if was_ids_running and self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.paused = False
             
     def delete_image(self, image_path):
         """Delete image file."""
@@ -665,6 +1002,9 @@ class CameraApp(QMainWindow):
             if self.camera_thread and self.camera_thread.running:
                 self.camera_thread.stop()
                 self.camera_thread = None
+            if self.ids_peak_thread and self.ids_peak_thread.running:
+                self.ids_peak_thread.stop()
+                self.ids_peak_thread = None
             self.hide()  # Hide window instead of closing
             event.ignore()  # Prevent window from being destroyed
         except Exception as e:
@@ -680,3 +1020,8 @@ class CameraApp(QMainWindow):
                 self.toggle_camera()
             except Exception as e:
                 logger.error(f"Error disconnecting camera on hide: {e}")
+        if self.ids_peak_thread and self.ids_peak_thread.running:
+            try:
+                self.toggle_camera()
+            except Exception as e:
+                logger.error(f"Error disconnecting IDS Peak camera on hide: {e}")
