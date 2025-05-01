@@ -1,7 +1,7 @@
 [project]
-name = "yolo-training-app"
-version = "0.1.0"
-requires-python = ">=3.11,<3.12"
+name = "AI-Training-App"
+version = "2025.10.14"
+requires-python = ">=3.12"
 
 dependencies = [
     "psutil>=5.9.0",
@@ -9,7 +9,7 @@ dependencies = [
     "pillow>=10.2.0",
     "requests>=2.31.0",
     "optuna>=4.2.1",
-    "albumentations",
+    "albumentations>=2.0",
     "emoji>=2.14.1",
     "markdown>=3.7",
     "ids-peak>=1.10.0.0.4",
@@ -21,13 +21,18 @@ dependencies = [
     "pyueye>=4.96.952",
     "pyarrow>=14.0.1",
     "ultralytics>=8.3.89",
+    "torchvision==0.22.0.dev20250325+cu128",
+    "torchaudio==2.6.0.dev20250325+cu128",
 ]
 
 [tool.uv.pip]
 index-strategy = "unsafe-best-match"
-index-url = "https://download.pytorch.org/whl/cu126"
+index-url = "https://download.pytorch.org/whl/nightly/cu128"
 extra-index-url = ["https://pypi.org/simple"]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/nightly/cu128"
+default = true
 
 [tool.setuptools]
 packages = ["gui", "yolo", "nxt_camera", "utils"]
-
