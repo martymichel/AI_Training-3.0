@@ -36,12 +36,12 @@ def get_device_settings():
     try:
         gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
         # Adjust batch size based on GPU memory
-        if gpu_mem >= 10:  # High-end GPUs (>= 10GB)
+        if gpu_mem >= 64:  # High-end GPUs (>= 10GB)
             return 'cuda:0', 1.0
-        elif gpu_mem >= 6:  # Mid-range GPUs (6-8GB)
-            return 'cuda:0', 0.5
+        elif gpu_mem >= 16:  # Mid-range GPUs (6-8GB)
+            return 'cuda:0', 0.8
         else:  # Low memory GPUs
-            return 'cuda:0', 0.3
+            return 'cuda:0', 0.5
     except Exception as e:
         logger.warning(f"Error getting GPU info: {e}")
         return 'cuda:0', 0.5
