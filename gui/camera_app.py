@@ -16,6 +16,8 @@ from PyQt6.QtGui import QImage, QPixmap, QKeyEvent, QFont, QColor, QPalette, QAc
 
 import glob
 
+from project_manager import ProjectManager, WorkflowStep
+
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -837,7 +839,11 @@ class CameraApp(QMainWindow):
                 raise Exception("Failed to save image")
             
             self.statusBar().showMessage(f"Image saved: {filename}")
-            
+
+            if hasattr(self, 'project_manager') and self.project_manager:
+                if not self.project_manager.is_step_completed(WorkflowStep.CAMERA):
+                    self.project_manager.mark_step_completed(WorkflowStep.CAMERA)            
+                    
             # Add thumbnail to gallery
             self.add_thumbnail(str(filepath))
             
@@ -1025,3 +1031,57 @@ class CameraApp(QMainWindow):
                 self.toggle_camera()
             except Exception as e:
                 logger.error(f"Error disconnecting IDS Peak camera on hide: {e}")
+
+    def save_camera_settings_to_project(self):
+        """Speichert Kamera-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = {
+                'camera_type': self.camera_combo.currentText(),
+                'output_directory': self.output_dir or ""
+            }
+            
+            self.project_manager.update_camera_settings(settings)
+    
+    def capture_image_with_project_integration(self):
+        """Erweiterte Bilderfassung mit Projekt-Integration"""
+        # Normale capture_image Funktion ausführen
+        self.capture_image()
+        
+        # Settings speichern und Workflow markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.save_camera_settings_to_project()
+            # Nur beim ersten Bild markieren
+            if not self.project_manager.is_step_completed(WorkflowStep.CAMERA):
+                self.project_manager.mark_step_completed(WorkflowStep.CAMERA)                
+
+
+
+
+"""
+Ergänzungen für gui/camera_app.py
+"""
+
+class CameraAppExtensions:
+    """Erweiterungen für die Camera App"""
+    
+    def save_camera_settings_to_project(self):
+        """Speichert Kamera-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = {
+                'camera_type': self.camera_combo.currentText(),
+                'output_directory': self.output_dir or ""
+            }
+            
+            self.project_manager.update_camera_settings(settings)
+    
+    def capture_image_with_project_integration(self):
+        """Erweiterte Bilderfassung mit Projekt-Integration"""
+        # Normale capture_image Funktion ausführen
+        self.capture_image()
+        
+        # Settings speichern und Workflow markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.save_camera_settings_to_project()
+            # Nur beim ersten Bild markieren
+            if not self.project_manager.is_step_completed(WorkflowStep.CAMERA):
+                self.project_manager.mark_step_completed(WorkflowStep.CAMERA)                

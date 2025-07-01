@@ -13,6 +13,8 @@ import logging
 import numpy as np
 from pathlib import Path
 
+from project_manager import ProjectManager, WorkflowStep
+
 class DatasetSplitterApp(QMainWindow):
     """Main window for the dataset splitter application."""
     
@@ -337,10 +339,12 @@ class DatasetSplitterApp(QMainWindow):
         self.progress_text.setText(message)
 
     def splitting_finished(self, success, message):
-        """Handle completion of splitting operation."""
         self.start_button.setEnabled(True)
         if success:
             QMessageBox.information(self, "Success", message)
+            # Projekt-Integration hinzufügen:
+            if hasattr(self, 'project_manager') and self.project_manager:
+                self.project_manager.mark_step_completed(WorkflowStep.SPLITTING)
         else:
             QMessageBox.critical(self, "Error", f"Failed to split dataset: {message}")
 

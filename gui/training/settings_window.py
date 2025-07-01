@@ -15,6 +15,7 @@ from utils.validation import validate_yaml, check_gpu
 from gui.training.settings_ui import create_settings_ui
 from gui.training.dashboard_view import create_dashboard_tabs
 from gui.training.training_thread import TrainingSignals, start_training_thread
+from project_manager import ProjectManager, WorkflowStep
 
 # Configure logging
 logger = logging.getLogger("training_gui")
@@ -395,6 +396,12 @@ class TrainSettingsWindow(QMainWindow):
                 self.results_check_timer.stop()
                 if not message:  # Only show success if no error
                     QMessageBox.information(self, "Training", "Training erfolgreich abgeschlossen!")
+            if hasattr(self, 'project_manager') and self.project_manager:
+                # Trainiertes Modell registrieren
+                # (Pfad muss aus dem Training-Prozess ermittelt werden)
+                model_path = "path/to/trained/model/best.pt"  # Dynamisch ermitteln
+                self.project_manager.register_new_model(model_path)
+                self.project_manager.mark_step_completed(WorkflowStep.TRAINING)                    
             elif progress == 0 and message:
                 self.training_active = False
                 self.start_button.setText("Start Training")
@@ -494,3 +501,92 @@ class TrainSettingsWindow(QMainWindow):
         
         # Accept close event
         event.accept()
+
+    def save_training_settings_to_project(self):
+        """Speichert Training-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = {
+                'epochs': self.epochs_input.value(),
+                'imgsz': self.imgsz_input.value(),
+                'batch': self.batch_input.value(),
+                'lr0': self.lr_input.value(),
+                'resume': self.resume_input.isChecked(),
+                'multi_scale': self.multi_scale_input.isChecked(),
+                'cos_lr': self.cos_lr_input.isChecked(),
+                'close_mosaic': self.close_mosaic_input.value(),
+                'momentum': self.momentum_input.value(),
+                'warmup_epochs': self.warmup_epochs_input.value(),
+                'warmup_momentum': self.warmup_momentum_input.value(),
+                'box': self.box_input.value(),
+                'dropout': self.dropout_input.value()
+            }
+            
+            self.project_manager.update_training_settings(settings)
+    
+    def register_trained_model_to_project(self, model_path: str, accuracy: float = None):
+        """Registriert trainiertes Modell im Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            training_params = {
+                'epochs': self.epochs_input.value(),
+                'lr0': self.lr_input.value(),
+                'batch': self.batch_input.value(),
+                'imgsz': self.imgsz_input.value()
+            }
+            
+            timestamp = self.project_manager.register_new_model(
+                model_path, accuracy, training_params
+            )
+            
+            # Workflow-Schritt markieren
+            self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+            
+            return timestamp
+
+
+
+"""
+Ergänzungen für gui/training/settings_window.py
+"""
+
+class TrainingWindowExtensions:
+    """Erweiterungen für das Training Window"""
+    
+    def save_training_settings_to_project(self):
+        """Speichert Training-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = {
+                'epochs': self.epochs_input.value(),
+                'imgsz': self.imgsz_input.value(),
+                'batch': self.batch_input.value(),
+                'lr0': self.lr_input.value(),
+                'resume': self.resume_input.isChecked(),
+                'multi_scale': self.multi_scale_input.isChecked(),
+                'cos_lr': self.cos_lr_input.isChecked(),
+                'close_mosaic': self.close_mosaic_input.value(),
+                'momentum': self.momentum_input.value(),
+                'warmup_epochs': self.warmup_epochs_input.value(),
+                'warmup_momentum': self.warmup_momentum_input.value(),
+                'box': self.box_input.value(),
+                'dropout': self.dropout_input.value()
+            }
+            
+            self.project_manager.update_training_settings(settings)
+    
+    def register_trained_model_to_project(self, model_path: str, accuracy: float = None):
+        """Registriert trainiertes Modell im Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            training_params = {
+                'epochs': self.epochs_input.value(),
+                'lr0': self.lr_input.value(),
+                'batch': self.batch_input.value(),
+                'imgsz': self.imgsz_input.value()
+            }
+            
+            timestamp = self.project_manager.register_new_model(
+                model_path, accuracy, training_params
+            )
+            
+            # Workflow-Schritt markieren
+            self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+            
+            return timestamp        

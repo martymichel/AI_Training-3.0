@@ -10,7 +10,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush, QPainter
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer, QPoint
+
 import utils.labeling_utils as utils
+from project_manager import ProjectManager, WorkflowStep
 
 # -------------------------------
 # Zoomable Graphics View
@@ -640,6 +642,87 @@ class ImageLabelingApp(QMainWindow):
         class_names = [name for name, _ in self.classes]
         utils.save_classes_file(classes_file, class_names)
         QMessageBox.information(self, "Erfolg", "Dataset wurde generiert!")
+
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.save_classes_to_project()
+            self.project_manager.mark_step_completed(WorkflowStep.LABELING)        
+
+    def save_classes_to_project(self):
+        """Speichert definierte Klassen ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            # Klassen ins Projekt übertragen
+            for idx, (name, color) in enumerate(self.classes):
+                self.project_manager.add_class(idx, name, color.name())
+            
+            print(f"Klassen gespeichert: {self.project_manager.get_classes()}")
+    
+    def load_classes_from_project(self):
+        """Lädt Klassen aus dem Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            classes = self.project_manager.get_classes()
+            colors = self.project_manager.get_class_colors()
+            
+            self.classes = []
+            for class_id in sorted(classes.keys()):
+                class_name = classes[class_id]
+                color_hex = colors.get(class_id, "#FF0000")
+                from PyQt6.QtGui import QColor
+                self.classes.append((class_name, QColor(color_hex)))
+            
+            self.update_class_list()
+    
+    def generate_dataset_with_project_integration(self):
+        """Erweiterte Dataset-Generierung mit Projekt-Integration"""
+        # Originale generate_dataset Funktion ausführen
+        self.generate_dataset()
+        
+        # Zusätzlich: Klassen ins Projekt speichern und Workflow markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.save_classes_to_project()
+            self.project_manager.mark_step_completed(WorkflowStep.LABELING)
+
+"""
+Ergänzungen für gui/image_labeling.py
+Diese Methoden sollten zur ImageLabelingApp-Klasse hinzugefügt werden
+"""
+
+class ImageLabelingAppExtensions:
+    """Erweiterungen für die Labeling App zur Projekt-Integration"""
+    
+    def save_classes_to_project(self):
+        """Speichert definierte Klassen ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            # Klassen ins Projekt übertragen
+            for idx, (name, color) in enumerate(self.classes):
+                self.project_manager.add_class(idx, name, color.name())
+            
+            print(f"Klassen gespeichert: {self.project_manager.get_classes()}")
+    
+    def load_classes_from_project(self):
+        """Lädt Klassen aus dem Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            classes = self.project_manager.get_classes()
+            colors = self.project_manager.get_class_colors()
+            
+            self.classes = []
+            for class_id in sorted(classes.keys()):
+                class_name = classes[class_id]
+                color_hex = colors.get(class_id, "#FF0000")
+                from PyQt6.QtGui import QColor
+                self.classes.append((class_name, QColor(color_hex)))
+            
+            self.update_class_list()
+    
+    def generate_dataset_with_project_integration(self):
+        """Erweiterte Dataset-Generierung mit Projekt-Integration"""
+        # Originale generate_dataset Funktion ausführen
+        self.generate_dataset()
+        
+        # Zusätzlich: Klassen ins Projekt speichern und Workflow markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.save_classes_to_project()
+            self.project_manager.mark_step_completed(WorkflowStep.LABELING)
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

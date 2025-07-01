@@ -8,8 +8,11 @@ import shutil
 from pathlib import Path
 from PyQt6.QtWidgets import QMessageBox, QApplication
 from PyQt6.QtGui import QImage, QPixmap
-from utils.augmentation_utils import augment_image_with_boxes
 from itertools import product
+
+from utils.augmentation_utils import augment_image_with_boxes
+from project_manager import WorkflowStep
+
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +275,9 @@ def start_augmentation_process(app):
         # Return to preview mode if it was on
         if app.preview_checkbox.isChecked():
             app.stack.setCurrentIndex(1)
+
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)            
         
     except Exception as e:
         logger.critical(f"Unbehandelter Fehler: {str(e)}", exc_info=True)

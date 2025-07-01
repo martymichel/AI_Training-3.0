@@ -8,10 +8,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QGroupBox, QCheckBox,
-    QFileDialog, QProgressBar, QMessageBox, QStackedWidget, QDialog
+    QFileDialog, QProgressBar, QStackedWidget, QDialog
 )
-from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QApplication
+
 from PyQt6.QtCore import Qt, QTimer
 
 from gui.augmentation_settings import SettingsDialog, load_settings, save_settings
@@ -22,6 +21,7 @@ from gui.augmentation_methods import (
     create_method_controls, get_method_key, show_method_info
 )
 from gui.augmentation_processor import start_augmentation_process, calculate_augmentation_count
+from project_manager import ProjectManager, WorkflowStep
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -318,3 +318,119 @@ class ImageAugmentationApp(QMainWindow):
             
         # Use a timer to debounce frequent updates
         self.preview_timer.start(100)
+
+    def save_settings_to_project(self):
+        """Speichert Augmentation-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            # Aktuelle Settings sammeln
+            settings = {
+                'methods': {},
+                'flip_settings': {
+                    'horizontal': self.horizontal_flip.isChecked(),
+                    'vertical': self.vertical_flip.isChecked()
+                }
+            }
+            
+            # Method-Settings sammeln
+            for method in self.methods:
+                from gui.augmentation_common import get_method_key
+                method_key = get_method_key(method)
+                if method_key in self.method_levels:
+                    checkbox, level1_spin, level2_spin = self.method_levels[method_key]
+                    settings['methods'][method_key] = {
+                        'enabled': checkbox.isChecked(),
+                        'level1': level1_spin.value(),
+                        'level2': level2_spin.value()
+                    }
+            
+            self.project_manager.update_augmentation_settings(settings)
+    
+    def load_settings_from_project(self):
+        """Lädt Augmentation-Settings aus dem Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = self.project_manager.get_augmentation_settings()
+            
+            if 'methods' in settings:
+                for method_key, method_settings in settings['methods'].items():
+                    if method_key in self.method_levels:
+                        checkbox, level1_spin, level2_spin = self.method_levels[method_key]
+                        checkbox.setChecked(method_settings.get('enabled', False))
+                        level1_spin.setValue(method_settings.get('level1', 2))
+                        level2_spin.setValue(method_settings.get('level2', 10))
+            
+            if 'flip_settings' in settings:
+                flip_settings = settings['flip_settings']
+                self.horizontal_flip.setChecked(flip_settings.get('horizontal', False))
+                self.vertical_flip.setChecked(flip_settings.get('vertical', False))
+    
+    def complete_augmentation_with_project_integration(self):
+        """Erweiterte Augmentation-Completion mit Projekt-Integration"""
+        # Settings speichern
+        self.save_settings_to_project()
+        
+        # Workflow-Schritt markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
+
+
+# ==================== AUGMENTATION APP INTEGRATION ====================
+
+"""
+Ergänzungen für gui/augmentation_app.py
+"""
+
+class AugmentationAppExtensions:
+    """Erweiterungen für die Augmentation App"""
+    
+    def save_settings_to_project(self):
+        """Speichert Augmentation-Settings ins Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            # Aktuelle Settings sammeln
+            settings = {
+                'methods': {},
+                'flip_settings': {
+                    'horizontal': self.horizontal_flip.isChecked(),
+                    'vertical': self.vertical_flip.isChecked()
+                }
+            }
+            
+            # Method-Settings sammeln
+            for method in self.methods:
+                from gui.augmentation_common import get_method_key
+                method_key = get_method_key(method)
+                if method_key in self.method_levels:
+                    checkbox, level1_spin, level2_spin = self.method_levels[method_key]
+                    settings['methods'][method_key] = {
+                        'enabled': checkbox.isChecked(),
+                        'level1': level1_spin.value(),
+                        'level2': level2_spin.value()
+                    }
+            
+            self.project_manager.update_augmentation_settings(settings)
+    
+    def load_settings_from_project(self):
+        """Lädt Augmentation-Settings aus dem Projekt"""
+        if hasattr(self, 'project_manager') and self.project_manager:
+            settings = self.project_manager.get_augmentation_settings()
+            
+            if 'methods' in settings:
+                for method_key, method_settings in settings['methods'].items():
+                    if method_key in self.method_levels:
+                        checkbox, level1_spin, level2_spin = self.method_levels[method_key]
+                        checkbox.setChecked(method_settings.get('enabled', False))
+                        level1_spin.setValue(method_settings.get('level1', 2))
+                        level2_spin.setValue(method_settings.get('level2', 10))
+            
+            if 'flip_settings' in settings:
+                flip_settings = settings['flip_settings']
+                self.horizontal_flip.setChecked(flip_settings.get('horizontal', False))
+                self.vertical_flip.setChecked(flip_settings.get('vertical', False))
+    
+    def complete_augmentation_with_project_integration(self):
+        """Erweiterte Augmentation-Completion mit Projekt-Integration"""
+        # Settings speichern
+        self.save_settings_to_project()
+        
+        # Workflow-Schritt markieren
+        if hasattr(self, 'project_manager') and self.project_manager:
+            self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)

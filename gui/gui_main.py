@@ -1,3 +1,4 @@
+# gui/gui_main.py
 """Main entry point for the KI Vision Tools application."""
 
 import sys
@@ -5,7 +6,6 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 from config import Config
-from gui.main_menu import MainMenu
 
 def start_app():
     """Initialize and start the application."""
@@ -17,12 +17,20 @@ def start_app():
         app.setStyle("Fusion")
         palette = app.palette()
         palette.setColor(palette.Window, QColor(53, 53, 53))
-        palette.setColor(palette.WindowText, Qt.white)
+        palette.setColor(palette.WindowText, Qt.GlobalColor.white)
         app.setPalette(palette)
     
+    # Neue projektbasierte MainMenu verwenden
+    from gui.main_menu import MainMenu
     window = MainMenu()
-    window.show()
-    return app.exec()
+    
+    # Nur anzeigen wenn Projekt erfolgreich geladen wurde
+    if window.project_manager:
+        window.show()
+        return app.exec()
+    else:
+        # Kein Projekt geladen - App beenden
+        return 0
 
 def main():
     """Main entry point with proper error handling."""
@@ -30,4 +38,6 @@ def main():
         return start_app()
     except Exception as e:
         print(f"Error starting application: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
