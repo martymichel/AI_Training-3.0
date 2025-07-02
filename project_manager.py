@@ -1,12 +1,39 @@
-# ==================== ROBUSTER PROJEKT-MANAGER DIALOG ====================
+"""
+Zentrales Projekt-Management System für AI Vision Tools
+Robuste Version mit ausführlicher Fehlerbehandlung und Logging
+"""
 
+import os
+import json
+import yaml
+import shutil
+import logging
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from project_manager import ProjectManager  # Nur für Type Checker
+
+from dataclasses import dataclass, asdict
+from enum import Enum
+
+# PyQt6 Imports für Dialog-System
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, 
     QListWidgetItem, QLabel, QLineEdit, QFileDialog, QMessageBox,
-    QGroupBox, QTextEdit, QProgressBar
+    QGroupBox, QTextEdit, QProgressBar, QWidget, QGridLayout, QFrame
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
+
+# Logging-Konfiguration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class ProjectCreationWorker(QThread):
     """Worker-Thread für Projekt-Erstellung mit Progress-Updates"""
@@ -605,7 +632,7 @@ class WorkflowStatusWidget(QWidget):
     
     step_clicked = pyqtSignal(str)  # Signal wenn Schritt angeklickt wird
     
-    def __init__(self, project_manager: ProjectManager, parent=None):
+    def __init__(self, project_manager: 'ProjectManager', parent=None):
         super().__init__(parent)
         self.project_manager = project_manager
         self.step_widgets = {}
@@ -1774,3 +1801,5 @@ class ProjectManager:
         except Exception as e:
             logger.error(f"Fehler bei Continual Learning Vorbereitung: {e}")
             return False, f"Fehler: {str(e)}", {}
+
+    pass

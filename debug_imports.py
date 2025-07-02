@@ -1,179 +1,105 @@
-# gui/gui_main.py - Korrigierte Version
-"""Main entry point for the KI Vision Tools application."""
+#!/usr/bin/env python3
+"""
+Debug-Script zur Diagnose von Import-Problemen
+"""
 
 import sys
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import Qt
-from config import Config
+import traceback
 
-def start_app():
-    """Initialize and start the application."""
-    # Ensure proper QApplication initialization with sys.argv
-    app = QApplication(sys.argv)
+def test_imports():
+    """Teste alle kritischen Imports systematisch."""
     
-    # Dark mode aus Config anwenden
-    if Config.ui.dark_mode:
-        app.setStyle("Fusion")
-        palette = app.palette()
-        palette.setColor(palette.Window, QColor(53, 53, 53))
-        palette.setColor(palette.WindowText, Qt.GlobalColor.white)
-        app.setPalette(palette)
-    
-    # Neue projektbasierte MainMenu verwenden
-    from gui.main_menu import MainMenu
-    window = MainMenu()
-    
-    # Nur anzeigen wenn Projekt erfolgreich geladen wurde
-    if window.project_manager:
-        window.show()
-        return app.exec()
-    else:
-        # Kein Projekt geladen - App beenden
-        return 0
-
-def main():
-    """Main entry point with proper error handling."""
+    print("🔍 Teste Python-Basis-Imports...")
     try:
-        return start_app()
+        from typing import Dict, List, Optional, Tuple
+        print("✅ typing imports OK")
+    except ImportError as e:
+        print(f"❌ typing import failed: {e}")
+        return False
+    
+    print("\n🔍 Teste PyQt6-Imports...")
+    try:
+        from PyQt6.QtWidgets import QApplication, QDialog, QMainWindow
+        from PyQt6.QtCore import Qt, QThread, pyqtSignal
+        from PyQt6.QtGui import QFont
+        print("✅ PyQt6 imports OK")
+    except ImportError as e:
+        print(f"❌ PyQt6 import failed: {e}")
+        print("   → Installiere PyQt6: pip install PyQt6")
+        return False
+    
+    print("\n🔍 Teste Standard-Library-Imports...")
+    try:
+        import json
+        import yaml
+        import logging
+        import shutil
+        from datetime import datetime
+        from pathlib import Path
+        from dataclasses import dataclass, asdict
+        from enum import Enum
+        print("✅ Standard library imports OK")
+    except ImportError as e:
+        print(f"❌ Standard library import failed: {e}")
+        return False
+    
+    print("\n🔍 Teste Project-Manager-Import...")
+    try:
+        from project_manager import WorkflowStep, ProjectConfig, ProjectManager
+        print("✅ project_manager core imports OK")
+    except ImportError as e:
+        print(f"❌ project_manager import failed: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        return False
     except Exception as e:
-        print(f"Error starting application: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
-
-# ==================== ALTERNATIVE: Minimale main.py Korrektur ====================
-
-# main.py - Schnelle Korrektur ohne gui_main.py zu ändern
-"""Main entry point for the KI Vision Tools application."""
-
-import sys
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-
-def main():
-    """Main entry point with proper error handling."""
+        print(f"❌ project_manager error: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        return False
+    
+    print("\n🔍 Teste GUI-Imports...")
     try:
-        # QApplication initialisieren
-        app = QApplication(sys.argv)
-        
-        # Neue projektbasierte MainMenu direkt importieren
         from gui.main_menu import MainMenu
-        window = MainMenu()
-        
-        # Nur anzeigen wenn Projekt erfolgreich geladen wurde
-        if hasattr(window, 'project_manager') and window.project_manager:
-            window.show()
-            return app.exec()
-        else:
-            print("Kein Projekt ausgewählt - App wird beendet")
-            return 0
-            
+        print("✅ gui.main_menu import OK")
+    except ImportError as e:
+        print(f"❌ gui.main_menu import failed: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        return False
     except Exception as e:
-        print(f"Error starting application: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ gui.main_menu error: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        return False
+    
+    print("\n✅ Alle kritischen Imports erfolgreich!")
+    return True
+
+def main():
+    print("🧪 AI Vision Tools - Import-Diagnose")
+    print("=" * 50)
+    
+    if test_imports():
+        print("\n🚀 Starte Applikation...")
+        try:
+            from PyQt6.QtWidgets import QApplication
+            from gui.main_menu import MainMenu
+            
+            app = QApplication(sys.argv)
+            window = MainMenu()
+            
+            if hasattr(window, 'project_manager') and window.project_manager:
+                window.show()
+                print("✅ Applikation erfolgreich gestartet!")
+                return app.exec()
+            else:
+                print("❌ Kein Projekt geladen - App beendet")
+                return 0
+                
+        except Exception as e:
+            print(f"❌ Fehler beim Starten der Applikation: {e}")
+            print(f"   Traceback: {traceback.format_exc()}")
+            return 1
+    else:
+        print("\n❌ Import-Probleme erkannt. Bitte behebe die Fehler vor dem Start.")
         return 1
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-# ==================== IMPORT-PROBLEM LÖSUNG ====================
-
-# Fügen Sie diese Zeile am Anfang der gui/main_menu.py hinzu:
-import sys
-import os
-
-# Projekt-Root zum Python-Path hinzufügen
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Dann erst die Projekt-Manager Imports
-try:
-    from project_manager import ProjectManager, ProjectManagerDialog, WorkflowStatusWidget, WorkflowStep
-except ImportError as e:
-    print(f"Fehler beim Importieren des Project Managers: {e}")
-    print("Bitte stellen Sie sicher, dass project_manager.py im Hauptverzeichnis liegt")
-    sys.exit(1)
-
-
-# ==================== DEBUGGING HILFE ====================
-
-# Temporäres Debug-Script: debug_imports.py
-"""
-Erstellen Sie diese Datei im Hauptverzeichnis zum Testen der Imports
-"""
-
-import sys
-import os
-
-print("Python Version:", sys.version)
-print("Aktuelles Verzeichnis:", os.getcwd())
-print("Python Path:", sys.path)
-
-# Test: Können wir project_manager importieren?
-try:
-    from project_manager import ProjectManager
-    print("✅ project_manager erfolgreich importiert")
-except ImportError as e:
-    print(f"❌ Import-Fehler project_manager: {e}")
-
-# Test: Können wir GUI Module importieren?
-try:
-    from gui.main_menu import MainMenu
-    print("✅ gui.main_menu erfolgreich importiert")
-except ImportError as e:
-    print(f"❌ Import-Fehler gui.main_menu: {e}")
-
-# Test: PyQt6 verfügbar?
-try:
-    from PyQt6.QtWidgets import QApplication
-    print("✅ PyQt6 erfolgreich importiert")
-except ImportError as e:
-    print(f"❌ Import-Fehler PyQt6: {e}")
-
-print("\nDateien im Hauptverzeichnis:")
-for file in os.listdir('.'):
-    if file.endswith('.py'):
-        print(f"  📄 {file}")
-
-print("\nDateien im gui/ Verzeichnis:")
-gui_path = os.path.join('.', 'gui')
-if os.path.exists(gui_path):
-    for file in os.listdir(gui_path):
-        if file.endswith('.py'):
-            print(f"  📄 gui/{file}")
-else:
-    print("  ❌ gui/ Verzeichnis nicht gefunden")
-
-
-# ==================== SCHRITT-FÜR-SCHRITT LÖSUNG ====================
-
-"""
-1. SCHRITT: Prüfen Sie die Dateistruktur
-   Ihr Hauptverzeichnis sollte enthalten:
-   - main.py
-   - project_manager.py  ← WICHTIG: Diese Datei muss vorhanden sein
-   - gui/
-     ├── main_menu.py
-     ├── __init__.py
-     └── ... andere GUI-Dateien
-
-2. SCHRITT: project_manager.py erstellen
-   Kopieren Sie den kompletten Inhalt aus dem ersten Artifact in diese Datei
-
-3. SCHRITT: main.py ersetzen
-   Ersetzen Sie Ihre main.py mit der minimalen Version oben
-
-4. SCHRITT: gui/main_menu.py anpassen
-   Fügen Sie die Import-Korrektur am Anfang der Datei hinzu
-
-5. SCHRITT: Testen
-   python debug_imports.py
-   Sollte alle ✅ anzeigen
-
-6. SCHRITT: App starten
-   python main.py
-   Sollte jetzt den Projekt-Manager Dialog öffnen
-"""
