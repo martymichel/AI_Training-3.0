@@ -12,10 +12,10 @@ warnings.filterwarnings('ignore', category=InsecureRequestWarning)
 
 class NxtCamera:
     """Class for interfacing with IDS NXT camera."""
-    
+
     def __init__(self, ip, username, password, ssl=True):
         """Initialize NXT camera connection.
-        
+
         Args:
             ip (str): Camera IP address
             username (str): Authentication username
@@ -27,27 +27,49 @@ class NxtCamera:
         self.protocol = "https" if ssl else "http"
         self.connected = False
         self.logger = logging.getLogger(__name__)
-        
+
+        self.base_url = None  # Determined during connect
+        self.session = requests.Session()
+
         # Test connection
         self.connect()
     
     def connect(self):
-        """Establish connection to camera."""
-        try:
-            url = f"{self.protocol}://{self.ip}/api/info"
-            response = requests.get(
-                url,
-                auth=self.auth,
-                verify=False,
-                timeout=5
-            )
-            response.raise_for_status()
-            self.connected = True
-            self.logger.info("Successfully connected to NXT camera")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to connect to NXT camera: {e}")
-            raise
+        """Establish connection to camera.
+
+        The exact REST endpoint can differ between firmware versions. We try
+        several common variants used by the official `nxt-python-api` project
+        until one succeeds.
+        """
+
+        endpoints = ["/api/info", "/api/v1/info", "/info"]
+        last_error = None
+
+        for ep in endpoints:
+            url = f"{self.protocol}://{self.ip}{ep}"
+            try:
+                resp = self.session.get(
+                    url,
+                    auth=self.auth,
+                    verify=False,
+                    timeout=5,
+                )
+                if resp.status_code == 404:
+                    last_error = f"404 for {url}"
+                    continue
+                resp.raise_for_status()
+                self.connected = True
+                self.base_url = url.rsplit("/", 1)[0]
+                self.logger.info("Successfully connected to NXT camera")
+                return
+            except Exception as e:
+                last_error = str(e)
+
+        self.connected = False
+        self.logger.error(
+            f"Failed to connect to NXT camera: {last_error}"
+        )
+        raise RuntimeError("Unable to establish connection to NXT camera")
     
     def get_frame(self):
         """Get current frame from camera.
@@ -84,4 +106,8 @@ class NxtCamera:
     def disconnect(self):
         """Disconnect from camera."""
         self.connected = False
+        try:
+            self.session.close()
+        except Exception:
+            pass
         self.logger.info("Disconnected from NXT camera")

@@ -171,12 +171,13 @@ class MainMenu(QMainWindow):
             QPushButton {
                 background-color: #165a69;
                 color: white;
-                padding: 15px;
+                padding: 20px;
                 border-radius: 8px;
                 font-weight: bold;
-                min-width: 200px;
+                min-width: 220px;
+                min-height: 100px;
                 text-align: center;
-                font-size: 12px;
+                font-size: 16px;
             }
             QPushButton:hover {
                 background-color: #7ABF5A;
@@ -213,6 +214,8 @@ class MainMenu(QMainWindow):
         """Erstellt Button mit Style"""
         btn = QPushButton(text)
         btn.setStyleSheet(style)
+        btn.setMinimumHeight(100)
+        btn.setMinimumWidth(220)
         btn.clicked.connect(callback)
         return btn
     

@@ -7,7 +7,10 @@ from albumentations import (
     ShiftScaleRotate, RandomBrightnessContrast, GaussianBlur, 
     BboxParams, Compose, PadIfNeeded, CenterCrop
 )
-from albumentations.augmentations.geometric.transforms import HorizontalFlip, VerticalFlip
+# Albumentations 2.x reorganized some modules. Importing the flip transforms
+# directly from ``albumentations`` works across versions and avoids import
+# errors on newer releases.
+from albumentations import HorizontalFlip, VerticalFlip
 import logging
 
 # Configure logging

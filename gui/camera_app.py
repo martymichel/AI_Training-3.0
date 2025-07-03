@@ -9,12 +9,13 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QDialog, QMenu,
     QLabel, QComboBox, QFileDialog, QMessageBox, QProgressBar, QListWidget, QListWidgetItem,
-    QApplication
+    QApplication, QLineEdit, QFormLayout, QCheckBox, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QFileSystemWatcher, QMutex, QMutexLocker
 from PyQt6.QtGui import QImage, QPixmap, QKeyEvent, QFont, QColor, QPalette, QAction
 
 import glob
+import logging
 
 from project_manager import ProjectManager, WorkflowStep
 
@@ -99,6 +100,41 @@ class CameraSelectionDialog(QDialog):
         button_layout.addWidget(select_btn)
         button_layout.addWidget(cancel_btn)
         layout.addLayout(button_layout)
+class NxtConfigDialog(QDialog):
+    """Dialog to configure IDS NXT connection."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("IDS NXT Konfiguration")
+
+        layout = QFormLayout(self)
+
+        self.ip_edit = QLineEdit("192.168.1.99")
+        self.user_edit = QLineEdit("admin")
+        self.pw_edit = QLineEdit("Flex")
+        self.pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ssl_check = QCheckBox("SSL verwenden")
+
+        layout.addRow("IP-Adresse:", self.ip_edit)
+        layout.addRow("Benutzer:", self.user_edit)
+        layout.addRow("Passwort:", self.pw_edit)
+        layout.addRow(self.ssl_check)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_config(self):
+        """Return the entered configuration."""
+        return {
+            'ip': self.ip_edit.text().strip(),
+            'username': self.user_edit.text().strip(),
+            'password': self.pw_edit.text(),
+            'ssl': self.ssl_check.isChecked(),
+        }
     
     def find_usb_cameras(self):
         """Find available USB camera devices."""
@@ -293,21 +329,15 @@ class IDSPeakCameraThread(QThread):
         try:
             with QMutexLocker(self._lock):
                 self.running = False
-                self.paused = True  # Pause first to avoid frame grab errors
-            
-            # Wait for thread to finish with timeout
-            if not self.wait(500):  # 500ms timeout
+                self.paused = False
+
+            if not self.wait(1000):  # allow more time for a clean shutdown
                 logger.warning("Camera thread did not stop gracefully, forcing termination")
                 self.terminate()
                 self.wait()
-            
-            # Do cleanup again to ensure everything is closed properly
+
+        finally:
             self.cleanup()
-        except Exception as e:
-            logger.error(f"Error stopping camera thread: {e}")
-            # Ensure thread is terminated even if error occurs
-            self.terminate()
-            self.wait()
 
 class CameraThread(QThread):
     """Thread for camera operations."""
@@ -401,15 +431,14 @@ class CameraThread(QThread):
         try:
             with QMutexLocker(self._lock):
                 self.running = False
-                self.paused = True  # Pause first to avoid frame grab errors
-            
-            # Wait for thread to finish with timeout
-            if not self.wait(500):  # 500ms timeout
+                self.paused = False
+
+            if not self.wait(1000):
                 logger.warning("Camera thread did not stop gracefully, forcing termination")
                 self.terminate()
                 self.wait()
-            
-            # Final cleanup
+
+        finally:
             with QMutexLocker(self._lock):
                 if self.camera:
                     logger.info("Releasing camera resources...")
@@ -418,12 +447,6 @@ class CameraThread(QThread):
                     elif self.camera_type == 'nxt':
                         self.camera.disconnect()
                 self.camera = None
-                
-        except Exception as e:
-            logger.error(f"Error stopping camera thread: {e}")
-            # Ensure thread is terminated even if error occurs
-            self.terminate()
-            self.wait()
 
 class ThumbnailWidget(QLabel):
     """Widget for displaying image thumbnails."""
@@ -640,13 +663,10 @@ class CameraApp(QMainWindow):
                 camera_type = self.camera_combo.currentText()
                 
                 if "IDS NXT" in camera_type:
-                    # Show NXT camera config dialog
-                    nxt_config = {
-                        'ip': '169.254.100.99',
-                        'username': 'admin',
-                        'password': 'Flex',
-                        'ssl': False
-                    }
+                    dialog = NxtConfigDialog(self)
+                    if dialog.exec() != QDialog.DialogCode.Accepted:
+                        return
+                    nxt_config = dialog.get_config()
                     self.camera_thread = CameraThread(
                         camera_type='nxt',
                         camera_id=0,

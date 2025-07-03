@@ -47,4 +47,4 @@ def get_package_versions():
 if __name__ == "__main__":
     get_system_info()
     get_cuda_info()
-get_package_versions()
+    get_package_versions()
