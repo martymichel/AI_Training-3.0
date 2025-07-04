@@ -21,9 +21,10 @@ from enum import Enum
 
 # PyQt6 Imports für Dialog-System
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, 
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
     QListWidgetItem, QLabel, QLineEdit, QFileDialog, QMessageBox,
-    QGroupBox, QTextEdit, QProgressBar, QWidget, QGridLayout, QFrame
+    QGroupBox, QTextEdit, QProgressBar, QWidget, QGridLayout, QFrame,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -669,7 +670,7 @@ Modelle: {project_data['models']}"""
 
 # ==================== WORKFLOW-STATUS WIDGET - ROBUST ====================
 
-from PyQt6.QtWidgets import QWidget, QGridLayout, QFrame
+from PyQt6.QtWidgets import QWidget, QGridLayout, QFrame, QCheckBox
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QIcon, QPalette
 
@@ -779,11 +780,11 @@ class WorkflowStatusWidget(QWidget):
                 title_layout.addWidget(icon_label)
                 title_layout.addWidget(title_label, 1)
                 
-                # Status-Icon
-                status_icon = QLabel("⏳")
-                status_icon.setFont(QFont("Arial", 14))
-                status_icon.setFixedSize(20, 20)
-                title_layout.addWidget(status_icon)
+                # Status-Checkbox zeigt Fertigstellung an
+                status_checkbox = QCheckBox()
+                status_checkbox.setEnabled(False)
+                status_checkbox.setFixedSize(20, 20)
+                title_layout.addWidget(status_checkbox)
                 
                 frame_layout.addLayout(title_layout)
                 
@@ -803,7 +804,7 @@ class WorkflowStatusWidget(QWidget):
                 # Widget speichern für Updates
                 self.step_widgets[step] = {
                     'frame': frame,
-                    'status_icon': status_icon,
+                    'status_checkbox': status_checkbox,
                     'status_label': status_label,
                     'title_label': title_label,
                     'desc_label': desc_label
@@ -836,12 +837,12 @@ class WorkflowStatusWidget(QWidget):
                     can_execute, message = self.project_manager.validate_workflow_step(step)
                     
                     frame = widgets['frame']
-                    status_icon = widgets['status_icon']
+                    status_checkbox = widgets['status_checkbox']
                     status_label = widgets['status_label']
                     
                     if is_completed:
                         # Abgeschlossen - Grün
-                        status_icon.setText("✅")
+                        status_checkbox.setChecked(True)
                         status_label.setText("Abgeschlossen")
                         status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
                         frame.setStyleSheet("""
@@ -857,7 +858,7 @@ class WorkflowStatusWidget(QWidget):
                         """)
                     elif can_execute:
                         # Bereit zur Ausführung - Blau
-                        status_icon.setText("▶️")
+                        status_checkbox.setChecked(False)
                         status_label.setText("Bereit")
                         status_label.setStyleSheet("color: #2196F3; font-weight: bold;")
                         frame.setStyleSheet("""
@@ -873,7 +874,7 @@ class WorkflowStatusWidget(QWidget):
                         """)
                     else:
                         # Nicht bereit - Grau
-                        status_icon.setText("⏳")
+                        status_checkbox.setChecked(False)
                         status_label.setText("Warten...")
                         status_label.setStyleSheet("color: #757575;")
                         frame.setStyleSheet("""
@@ -897,7 +898,7 @@ class WorkflowStatusWidget(QWidget):
                 except Exception as e:
                     logger.error(f"Fehler beim Aktualisieren von Workflow-Schritt {step}: {e}")
                     # Fallback-Status bei Fehler
-                    widgets['status_icon'].setText("❌")
+                    widgets['status_checkbox'].setChecked(False)
                     widgets['status_label'].setText("Fehler")
                     widgets['frame'].setStyleSheet("""
                         QFrame {

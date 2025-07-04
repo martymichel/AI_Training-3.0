@@ -101,30 +101,34 @@ class DatasetSplitter:
         return valid_pairs
 
     def create_directories(self, output_dir):
-        """Create the necessary output directories."""
-        dirs = {
-            'train': os.path.join(output_dir, 'train'),
-            'val': os.path.join(output_dir, 'val'),
-            'test': os.path.join(output_dir, 'test')
-        }
-        
-        for dir_path in dirs.values():
-            os.makedirs(dir_path, exist_ok=True)
-        
+        """Create the necessary output directories with images/labels subfolders."""
+        dirs = {}
+        for split in ['train', 'val', 'test']:
+            root = os.path.join(output_dir, split)
+            images = os.path.join(root, 'images')
+            labels = os.path.join(root, 'labels')
+            os.makedirs(images, exist_ok=True)
+            os.makedirs(labels, exist_ok=True)
+            dirs[split] = {
+                'root': root,
+                'images': images,
+                'labels': labels,
+            }
+
         return dirs
 
-    def copy_files(self, file_pairs, destination_dir, progress_callback=None):
-        """Copy image and label files to destination directory."""
+    def copy_files(self, file_pairs, destination_dirs, progress_callback=None):
+        """Copy image and label files to destination directories."""
         successful_copies = 0
-        
+
         for img_path, label_path in file_pairs:
             try:
                 # Copy image
-                img_dest = os.path.join(destination_dir, img_path.name)
+                img_dest = os.path.join(destination_dirs['images'], img_path.name)
                 shutil.copy2(img_path, img_dest)
-                
+
                 # Copy label
-                label_dest = os.path.join(destination_dir, label_path.name)
+                label_dest = os.path.join(destination_dirs['labels'], label_path.name)
                 shutil.copy2(label_path, label_dest)
                 
                 successful_copies += 1
@@ -145,7 +149,7 @@ class DatasetSplitter:
             with open(txt_path, 'w') as f:
                 for img_path, _ in split_data[split_name]:
                     f.write(str(os.path.join(
-                        split_dirs[split_name], 
+                        split_dirs[split_name]['images'],
                         img_path.name
                     )) + '\n')
         

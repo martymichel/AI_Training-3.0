@@ -18,12 +18,40 @@ except ImportError as e:
     sys.exit(1)
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSizePolicy, QSpacerItem, QStyle, QMenuBar, QMenu
 )
+
+from gui.augmentation_preview import load_sample_image
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QAction
-from PyQt6.QtWidgets import QDialog, QMessageBox
+from PyQt6.QtWidgets import QDialog, QMessageBox, QGridLayout
+APP_STYLE = """
+QMainWindow {
+    background-color: #2b2b2b;
+    color: #f0f0f0;
+}
+QMenuBar {
+    background-color: #333;
+}
+QMenuBar::item {
+    padding: 4px 12px;
+}
+QMenuBar::item:selected {
+    background-color: #444;
+}
+QPushButton {
+    background-color: #444;
+    color: #f0f0f0;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+QPushButton:hover {
+    background-color: #555;
+}
+"""
+
 
 class MainMenu(QMainWindow):
     """Erweiterte Main Menu Klasse mit Projekt-Management"""
@@ -67,7 +95,7 @@ class MainMenu(QMainWindow):
         """Initialisiert die Benutzeroberfläche"""
         self.setWindowTitle(f"AI Vision Tools - {self.project_manager.config.project_name}")
         self.setWindowState(Qt.WindowState.WindowMaximized)
-        self.setStyleSheet("background-color: #292b2f; color: white;")
+        self.setStyleSheet(APP_STYLE)
         
         # Menu Bar hinzufügen
         self.create_menu_bar()
@@ -76,7 +104,7 @@ class MainMenu(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setSpacing(15)
+        layout.setSpacing(20)
         layout.setContentsMargins(50, 30, 50, 30)
         
         # Logo und Header
@@ -87,11 +115,11 @@ class MainMenu(QMainWindow):
         self.workflow_widget.step_clicked.connect(self.open_workflow_step)
         layout.addWidget(self.workflow_widget)
         
-        # Spacer
-        layout.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        layout.addSpacing(20)
         
         # Tool-Buttons (traditionelle Ansicht)
         self.create_tool_buttons(layout)
+        layout.addStretch()
         
         # Footer
         self.create_footer(layout)
@@ -125,97 +153,59 @@ class MainMenu(QMainWindow):
         help_menu.addAction(about_action)
     
     def create_header(self, layout):
-        """Erstellt Header mit Logo und Titel"""
-        # Logo oben links
-        logo_layout = QHBoxLayout()
-        self.logo_label = QLabel()
-        try:
-            pixmap = QPixmap("img/logo.png")
-            self.logo_label.setPixmap(pixmap.scaled(100, 100, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        except:
-            self.logo_label.setText("🤖")  # Fallback emoji
-            self.logo_label.setFont(QFont("Arial", 32))
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        logo_layout.addWidget(self.logo_label)
-        logo_layout.addStretch()
-        layout.addLayout(logo_layout)
-        
-        # Header
+        """Erstellt den Kopfbereich"""
         title = QLabel("AI Vision Tools")
-        title_font = QFont("Arial", 32, QFont.Weight.Bold)
-        title.setFont(title_font)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
+        title.setFont(QFont("Arial", 28, QFont.Weight.Bold))
+
         subtitle = QLabel("by Michel Marty")
-        subtitle.setFont(QFont("Arial", 18))
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-        
-        # Projekt-Info
+        subtitle.setFont(QFont("Arial", 14))
+
         project_info = QLabel(f"Aktuelles Projekt: {self.project_manager.config.project_name}")
-        project_info.setFont(QFont("Arial", 14))
         project_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        project_info.setStyleSheet("color: #4CAF50; margin: 10px;")
+        project_info.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        project_info.setStyleSheet("margin-bottom: 10px;")
+
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
         layout.addWidget(project_info)
     
     def create_tool_buttons(self, layout):
-        """Erstellt traditionelle Tool-Buttons"""
+        """Erstellt die Tool-Buttons"""
         description = QLabel("Oder wählen Sie direkt ein Tool aus:")
         description.setFont(QFont("Arial", 14))
         description.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(description)
-        
-        # Button-Stil
-        button_style = """
-            QPushButton {
-                background-color: #165a69;
-                color: white;
-                padding: 20px;
-                border-radius: 8px;
-                font-weight: bold;
-                min-width: 220px;
-                min-height: 100px;
-                text-align: center;
-                font-size: 16px;
-            }
-            QPushButton:hover {
-                background-color: #7ABF5A;
-            }
-        """
-        
-        # Buttons in Reihen
-        row1 = QHBoxLayout()
-        row1.addWidget(self.create_button("📷 Kamera", self.open_camera, button_style))
-        row1.addWidget(self.create_button("🏷️ Labeling", self.open_labeling, button_style))
-        row1.addWidget(self.create_button("🔄 Augmentation", self.open_augmentation, button_style))
-        layout.addLayout(row1)
-        
-        row2 = QHBoxLayout()
-        row2.addWidget(self.create_button("👁️ Dataset Viewer", self.open_dataset_viewer, button_style))
-        row2.addWidget(self.create_button("📊 Dataset Splitter", self.open_splitter, button_style))
-        row2.addWidget(self.create_button("🚀 Training", self.open_training, button_style))
-        layout.addLayout(row2)
-        
-        row3 = QHBoxLayout()
-        row3.addWidget(self.create_button("✅ Verifikation", self.open_verification, button_style))
-        row3.addWidget(self.create_button("🎯 Live Detection", self.open_detection, button_style))
-        row3.addWidget(self.create_button("📈 Dashboard", self.open_dashboard, button_style))
-        layout.addLayout(row3)
+        buttons = [
+            ("Kamera", self.open_camera),
+            ("Labeling", self.open_labeling),
+            ("Augmentation", self.open_augmentation),
+            ("Dataset Viewer", self.open_dataset_viewer),
+            ("Dataset Splitter", self.open_splitter),
+            ("Training", self.open_training),
+            ("Verifikation", self.open_verification),
+            ("Live Detection", self.open_detection),
+            ("Dashboard", self.open_dashboard),
+        ]
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        for i, (text, cb) in enumerate(buttons):
+            btn = self.create_button(text, cb)
+            row = i // 3
+            col = i % 3
+            grid.addWidget(btn, row, col)
+        layout.addLayout(grid)
+
     
     def create_footer(self, layout):
-        """Erstellt Footer"""
-        layout.addStretch()
         footer = QLabel("Application by Michel Marty for Flex Precision Plastic Solutions AG Switzerland © 2025")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(footer)
-    
-    def create_button(self, text, callback, style):
-        """Erstellt Button mit Style"""
+
+    def create_button(self, text, callback):
         btn = QPushButton(text)
-        btn.setStyleSheet(style)
-        btn.setMinimumHeight(100)
-        btn.setMinimumWidth(220)
+        btn.setMinimumSize(180, 80)
         btn.clicked.connect(callback)
         return btn
     
@@ -303,12 +293,16 @@ class MainMenu(QMainWindow):
             # UI Labels aktualisieren
             app.source_label.setText(f"Quellverzeichnis: {app.source_path}")
             app.dest_label.setText(f"Zielverzeichnis: {app.dest_path}")
-            
+
             # Gespeicherte Settings laden
             saved_settings = self.project_manager.get_augmentation_settings()
             if saved_settings:
                 app.settings.update(saved_settings)
-            
+
+            # Count information and preview
+            app.update_expected_count()
+            load_sample_image(app)
+
             self.windows['augmentation'] = app
         
         self.windows['augmentation'].show()

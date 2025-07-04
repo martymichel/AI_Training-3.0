@@ -3,6 +3,7 @@
 import os
 import cv2
 import logging
+import random
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap
 from utils.augmentation_utils import augment_image_with_boxes
@@ -16,12 +17,13 @@ def load_sample_image(app):
         return
         
     try:
-        # Find first image and label
-        image_files = list(Path(app.source_path).rglob("*.jpg")) + list(Path(app.source_path).rglob("*.png"))
+        # Collect available images and pick one at random
+        image_files = list(Path(app.source_path).rglob("*.jpg")) + \
+                     list(Path(app.source_path).rglob("*.png"))
         if not image_files:
             return
-            
-        image_path = str(image_files[0])
+
+        image_path = str(random.choice(image_files))
         label_path = os.path.splitext(image_path)[0] + ".txt"
         
         # Load image
