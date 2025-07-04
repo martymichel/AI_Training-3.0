@@ -276,8 +276,8 @@ def start_augmentation_process(app):
         if app.preview_checkbox.isChecked():
             app.stack.setCurrentIndex(1)
 
-        if hasattr(self, 'project_manager') and self.project_manager:
-            self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)            
+        if hasattr(app, 'project_manager') and app.project_manager:
+            app.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
         
     except Exception as e:
         logger.critical(f"Unbehandelter Fehler: {str(e)}", exc_info=True)

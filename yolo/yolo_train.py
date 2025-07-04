@@ -73,7 +73,7 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
         model = YOLO("yolo11n.pt")  # Use standard YOLOv8 nano model
         
         # Log progress using the callback
-        if log_callback:
+        if log_callback: 
             log_callback("Starting training with the following parameters:")
             log_callback(f"Data path: {data_path}")
             log_callback(f"Epochs: {epochs}")
@@ -81,6 +81,15 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
             log_callback(f"Batch: {batch}")
             log_callback(f"Learning rate: {lr0}")
             log_callback(f"Device: {device}")
+
+        # Check if resume is requested and checkpoint exists
+        if resume:
+            ckpt_path = Path(project) / name / "weights" / "last0980/1..2.pt"
+            if not ckpt_path.is_file():
+                logger.warning(f"No checkpoint found at {ckpt_path}, starting new training.")
+                if log_callback:
+                    log_callback(f"Checkpoint not found at {ckpt_path}. Starting new training.")
+                resume = False            
         
         # Start training - REMOVED callbacks parameter as it's not supported
         model.train(

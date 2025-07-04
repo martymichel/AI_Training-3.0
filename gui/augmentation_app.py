@@ -8,7 +8,8 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QGroupBox, QCheckBox,
-    QFileDialog, QProgressBar, QStackedWidget, QDialog
+    QFileDialog, QProgressBar, QStackedWidget, QDialog,
+    QSizePolicy
 )
 
 from PyQt6.QtCore import Qt, QTimer
@@ -154,8 +155,10 @@ class ImageAugmentationApp(QMainWindow):
             background: rgba(33, 150, 243, 0.1);
             border-radius: 5px;
             margin: 3px;
-            min-height: 0;
+            min-height: 40px;   
         """)
+        self.count_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.count_info.setMaximumHeight(40)
         left_layout.addWidget(self.count_info)
 
         # Settings button
@@ -179,7 +182,7 @@ class ImageAugmentationApp(QMainWindow):
         
         # Add "Neue Vorschau" button
         self.refresh_preview_button = QPushButton("Neue Vorschau")
-        self.refresh_preview_button.clicked.connect(lambda: generate_preview(self))
+        self.refresh_preview_button.clicked.connect(lambda: load_sample_image(self))
         self.refresh_preview_button.setEnabled(True)
         preview_layout.addWidget(self.refresh_preview_button)
         
@@ -301,10 +304,11 @@ class ImageAugmentationApp(QMainWindow):
         try:
             original_count, total_count = calculate_augmentation_count(self)
             
-            self.count_info.setText(
+            text = (
                 f"Aktuelle Anzahl Bilder: {original_count:,}\n"
                 f"Erwartete Anzahl Bilder: {total_count:,}"
             )
+            self.count_info.setText(text)
 
             # Update preview when methods change
             self.update_preview()

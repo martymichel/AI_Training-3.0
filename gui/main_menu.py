@@ -18,12 +18,13 @@ except ImportError as e:
     sys.exit(1)
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSizePolicy, QSpacerItem, QStyle, QMenuBar, QMenu
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QAction
 from PyQt6.QtWidgets import QDialog, QMessageBox
+from gui.augmentation_preview import load_sample_image
 
 class MainMenu(QMainWindow):
     """Erweiterte Main Menu Klasse mit Projekt-Management"""
@@ -303,12 +304,16 @@ class MainMenu(QMainWindow):
             # UI Labels aktualisieren
             app.source_label.setText(f"Quellverzeichnis: {app.source_path}")
             app.dest_label.setText(f"Zielverzeichnis: {app.dest_path}")
-            
+
             # Gespeicherte Settings laden
             saved_settings = self.project_manager.get_augmentation_settings()
             if saved_settings:
                 app.settings.update(saved_settings)
-            
+
+            # Count information and preview
+            app.update_expected_count()
+            load_sample_image(app)
+
             self.windows['augmentation'] = app
         
         self.windows['augmentation'].show()

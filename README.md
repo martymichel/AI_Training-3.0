@@ -23,6 +23,10 @@ Der Dataset-Splitter (Nr. 5) teilt die Daten in Trainings-, Validierungs- und Te
 
 Der YOLO-Trainer (Nr. 6) konfiguriert und startet das eigentliche Training des neuronalen Netzwerks.
 
+## Training fortsetzen
+
+Im Trainer kann die Option **Resume** aktiviert werden, um ein zuvor gestartetes Training weiterzuführen. Das Programm sucht dann nach einer `weights/last.pt`-Datei im angegebenen Projekt und Experiment. Ist kein Checkpoint vorhanden, beginnt ein neues Training und es erscheint eine Warnung im Log.
+
 # Trainingsüberwachung
 
 Das Dashboard (zugänglich über Trainer) visualisiert Metriken und Fortschritt während des Trainings.
