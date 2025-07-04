@@ -627,11 +627,10 @@ class ImageLabelingApp(QMainWindow):
             base = os.path.splitext(os.path.basename(image_path))[0]
             txt_file = os.path.join(self.dest_dir, base + ".txt")
             ann_list = self.annotations.get(image_path, [])
-            if ann_list:
-                # Annotations are already normalized, save directly
-                with open(txt_file, 'w') as f:
-                    for cls_id, x_center, y_center, width, height in ann_list:
-                        f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+            # Always create a label file, even if no annotations exist
+            with open(txt_file, 'w') as f:
+                for cls_id, x_center, y_center, width, height in ann_list:
+                    f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
             
             dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
             try:
