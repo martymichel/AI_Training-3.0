@@ -401,6 +401,12 @@ class ImageLabelingApp(QMainWindow):
         self.generate_button.clicked.connect(self.generate_dataset)
         side_layout.addWidget(self.generate_button)
 
+        # Button to continue with augmentation
+        self.next_button = QPushButton("Weiter zur Augmentation")
+        self.next_button.setMinimumHeight(40)
+        self.next_button.clicked.connect(self.open_augmentation_app)
+        side_layout.addWidget(self.next_button)
+
         # Add stretch at the bottom
         side_layout.addStretch()
         
@@ -679,6 +685,30 @@ class ImageLabelingApp(QMainWindow):
         if hasattr(self, 'project_manager') and self.project_manager:
             self.save_classes_to_project()
             self.project_manager.mark_step_completed(WorkflowStep.LABELING)
+
+    def open_augmentation_app(self):
+        """Open augmentation tool and close labeling window."""
+        try:
+            from gui.augmentation_app import ImageAugmentationApp
+            app = ImageAugmentationApp()
+            app.project_manager = self.project_manager
+            if self.project_manager:
+                app.source_path = str(self.project_manager.get_labeled_dir())
+                app.dest_path = str(self.project_manager.get_augmented_dir())
+                app.source_label.setText(f"Quellverzeichnis: {app.source_path}")
+                app.dest_label.setText(f"Zielverzeichnis: {app.dest_path}")
+
+                saved_settings = self.project_manager.get_augmentation_settings()
+                if saved_settings:
+                    app.settings.update(saved_settings)
+
+                app.update_expected_count()
+                load_sample_image(app)
+
+            app.show()
+            self.close()
+        except Exception as e:
+            print(f"Fehler beim Öffnen der Augmentation-App: {e}")
 
 """
 Ergänzungen für gui/image_labeling.py

@@ -203,6 +203,12 @@ class ImageAugmentationApp(QMainWindow):
         self.start_button.clicked.connect(lambda: start_augmentation_process(self))
         left_layout.addWidget(self.start_button)
         
+        # Button to continue with dataset splitting
+        self.next_button = QPushButton("Weiter zum Splitter")
+        self.next_button.setMinimumHeight(40)
+        self.next_button.clicked.connect(self.open_splitter_app)
+        left_layout.addWidget(self.next_button)
+
         return left_panel
 
     def create_right_panel(self):
@@ -371,10 +377,36 @@ class ImageAugmentationApp(QMainWindow):
         """Erweiterte Augmentation-Completion mit Projekt-Integration"""
         # Settings speichern
         self.save_settings_to_project()
-        
+
         # Workflow-Schritt markieren
         if hasattr(self, 'project_manager') and self.project_manager:
             self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
+
+    def open_splitter_app(self):
+        """Open dataset splitter and close augmentation window."""
+        try:
+            from gui.dataset_splitter import DatasetSplitterApp
+            app = DatasetSplitterApp()
+            app.project_manager = self.project_manager
+            if self.project_manager:
+                aug_dir = self.project_manager.get_augmented_dir()
+                labeled_dir = self.project_manager.get_labeled_dir()
+                aug_files = list(aug_dir.glob("*.jpg")) + list(aug_dir.glob("*.png"))
+                source_dir = str(aug_dir) if aug_files else str(labeled_dir)
+                app.source_path.setText(source_dir)
+                app.output_path.setText(str(self.project_manager.get_split_dir()))
+
+                if source_dir:
+                    app.analyze_classes(source_dir)
+                    classes = self.project_manager.get_classes()
+                    for class_id, class_name in classes.items():
+                        if class_id in app.class_inputs:
+                            app.class_inputs[class_id].setText(class_name)
+
+            app.show()
+            self.close()
+        except Exception as e:
+            logger.error(f"Failed to open dataset splitter: {e}")
 
 
 # ==================== AUGMENTATION APP INTEGRATION ====================

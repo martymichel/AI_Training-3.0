@@ -81,6 +81,12 @@ class DatasetSplitterApp(QMainWindow):
         self.start_button.setStyleSheet("background-color: blue; color: white; font-size: 16px")
         self.start_button.clicked.connect(self.start_splitting)
         self.layout.addWidget(self.start_button)
+
+        # Button to continue with training
+        self.next_button = QPushButton("Weiter zum Training")
+        self.next_button.setMinimumHeight(40)
+        self.next_button.clicked.connect(self.open_training_app)
+        self.layout.addWidget(self.next_button)
         
         # Add stretch at the bottom
         self.layout.addStretch()
@@ -347,6 +353,34 @@ class DatasetSplitterApp(QMainWindow):
                 self.project_manager.mark_step_completed(WorkflowStep.SPLITTING)
         else:
             QMessageBox.critical(self, "Error", f"Failed to split dataset: {message}")
+
+    def open_training_app(self):
+        """Open training window and close splitter."""
+        try:
+            from gui.training.settings_window import TrainSettingsWindow
+            app = TrainSettingsWindow()
+            app.project_manager = getattr(self, 'project_manager', None)
+            if app.project_manager:
+                app.project_input.setText(str(app.project_manager.get_models_dir().parent))
+                app.name_input.setText("training")
+                app.data_input.setText(str(app.project_manager.get_yaml_file()))
+
+                saved_settings = app.project_manager.get_training_settings()
+                if saved_settings:
+                    for key, value in saved_settings.items():
+                        if hasattr(app, f"{key}_input"):
+                            widget = getattr(app, f"{key}_input")
+                            if hasattr(widget, 'setValue'):
+                                widget.setValue(value)
+                            elif hasattr(widget, 'setText'):
+                                widget.setText(str(value))
+                            elif hasattr(widget, 'setChecked'):
+                                widget.setChecked(bool(value))
+
+            app.show()
+            self.close()
+        except Exception as e:
+            logging.error(f"Failed to open training app: {e}")
 
     def start_splitting(self):
         """Start the dataset splitting process."""

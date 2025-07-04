@@ -1314,6 +1314,10 @@ class CameraApp(QMainWindow):
         self.gallery = ImageGallery(self.dark_mode)
         right_panel.addWidget(self.gallery)
         
+        # Button to open labeling tool when finished
+        self.next_button = ModernButton("➡ Labeling", primary=True, dark_mode=self.dark_mode)
+        right_panel.addWidget(self.next_button)
+
         # Add panels to main layout
         main_layout.addLayout(left_panel, 2)
         main_layout.addLayout(right_panel, 1)
@@ -1564,6 +1568,8 @@ class CameraApp(QMainWindow):
         self.capture_button.clicked.connect(self.capture_image)
         self.refresh_button.clicked.connect(self.detect_cameras)
         self.gallery.image_selected.connect(self.show_full_image)
+        if hasattr(self, 'next_button'):
+            self.next_button.clicked.connect(self.open_labeling_app)
         
         # Theme toggle connection
         if hasattr(self, 'theme_toggle'):
@@ -1866,6 +1872,35 @@ class CameraApp(QMainWindow):
             pass
         else:
             super().keyPressEvent(event)
+
+    def open_labeling_app(self):
+        """Open labeling tool and close camera window."""
+        try:
+            from gui.image_labeling import ImageLabelingApp
+            app = ImageLabelingApp()
+            app.project_manager = self.project_manager
+            if self.project_manager:
+                app.source_dir = str(self.project_manager.get_raw_images_dir())
+                app.dest_dir = str(self.project_manager.get_labeled_dir())
+                app.lbl_source_dir.setText(f"Quellverzeichnis: {app.source_dir}")
+                app.lbl_dest_dir.setText(f"Zielverzeichnis: {app.dest_dir}")
+
+                classes = self.project_manager.get_classes()
+                colors = self.project_manager.get_class_colors()
+                app.classes = []
+                from PyQt6.QtGui import QColor
+                for class_id in sorted(classes.keys()):
+                    class_name = classes[class_id]
+                    color = colors.get(class_id, "#FF0000")
+                    app.classes.append((class_name, QColor(color)))
+
+                app.update_class_list()
+                app.load_images()
+
+            app.show()
+            self.close()
+        except Exception as e:
+            logger.error(f"Failed to open labeling app: {e}")            
     
     def closeEvent(self, event):
         """Handle close event"""
