@@ -22,7 +22,11 @@ from config import Config
 from utils.validation import validate_yaml, check_gpu
 from gui.training.settings_ui import create_settings_ui
 from gui.training.dashboard_view import create_dashboard_tabs
-from gui.training.training_thread import TrainingSignals, start_training_thread
+from gui.training.training_thread import (
+    TrainingSignals,
+    start_training_thread,
+    stop_training,
+)
 from project_manager import ProjectManager, WorkflowStep
 
 # Configure logging
@@ -367,6 +371,7 @@ class TrainSettingsWindow(QMainWindow):
 
     def stop_training(self):
         """Stop the current training process."""
+        stop_training(self.project, self.experiment)
         # In a real implementation, you would need to signal the training process to stop
         self.signals.progress_updated.emit(0, "Training stopped by user")
         self.training_active = False
