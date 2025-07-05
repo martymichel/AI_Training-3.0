@@ -24,18 +24,20 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtGui import QFont, QPixmap, QAction, QPainter, QPen, QColor, QBrush
 from PyQt6.QtWidgets import QDialog, QMessageBox, QGraphicsDropShadowEffect
 
-class MainMenu(QFrame):
+class ModernCard(QFrame):
     """Moderne Workflow-Karte mit sauberem Design"""
     
     clicked = pyqtSignal(str)
     
-    def __init__(self, title, description, step_key, status="disabled"):
+    def __init__(self, title, description, icon_name, step_key, status="disabled"):
         super().__init__()
         self.title = title
         self.description = description
+        self.icon_name = icon_name
         self.step_key = step_key
         self.status = status
         self.is_hovered = False
+        self.icon_label = None
         
         self.init_ui()
         self.set_style()
@@ -67,6 +69,13 @@ class MainMenu(QFrame):
         status_layout.addWidget(self.status_bar)
         status_layout.addStretch()
         
+        # Icon laden und anzeigen
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(60, 60)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_label.setStyleSheet("background: transparent; border: none;")
+        self.load_icon()
+        
         # Title
         title_label = QLabel(self.title)
         title_font = QFont()
@@ -74,6 +83,7 @@ class MainMenu(QFrame):
         title_font.setWeight(QFont.Weight.Medium)
         title_label.setFont(title_font)
         title_label.setWordWrap(True)
+        title_label.setStyleSheet("background: transparent;")
         
         # Description
         desc_label = QLabel(self.description)
@@ -82,14 +92,84 @@ class MainMenu(QFrame):
         desc_label.setFont(desc_font)
         desc_label.setWordWrap(True)
         desc_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        desc_label.setStyleSheet("background: transparent;")
         
+        # Layout mit Icon-Platzierung
         layout.addWidget(status_widget)
-        layout.addWidget(title_label)
+        
+        # Horizontales Layout für Titel und Icon
+        title_icon_layout = QHBoxLayout()
+        title_icon_layout.setContentsMargins(0, 0, 0, 0)
+        title_icon_layout.addWidget(title_label)
+        title_icon_layout.addStretch()
+        title_icon_layout.addWidget(self.icon_label)
+        
+        title_icon_widget = QWidget()
+        title_icon_widget.setLayout(title_icon_layout)
+        title_icon_widget.setStyleSheet("background: transparent;")
+        
+        layout.addWidget(title_icon_widget)
         layout.addWidget(desc_label)
         layout.addStretch()
         
         # Click handling
         self.setCursor(Qt.CursorShape.PointingHandCursor if self.status != "disabled" else Qt.CursorShape.ForbiddenCursor)
+    
+    def load_icon(self):
+        """Lädt das Icon als QPixmap"""
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        icon_path = os.path.join(project_root, "icons", f"{self.icon_name}.png")
+        
+        if os.path.exists(icon_path):
+            print(f"DEBUG: Icon gefunden: {icon_path}")
+            pixmap = QPixmap(icon_path)
+            
+            if not pixmap.isNull():
+                # Icon skalieren auf 50x50 Pixel
+                scaled_pixmap = pixmap.scaled(
+                    50, 50,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                # Icon entsprechend dem Status einfärben/transparent machen
+                if self.status == "disabled":
+                    # Icon halbtransparent machen für disabled Status
+                    painter = QPainter(scaled_pixmap)
+                    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+                    painter.fillRect(scaled_pixmap.rect(), QColor(0, 0, 0, 128))
+                    painter.end()
+                
+                self.icon_label.setPixmap(scaled_pixmap)
+                print(f"DEBUG: Icon erfolgreich geladen für {self.icon_name}")
+            else:
+                print(f"WARNING: Pixmap konnte nicht erstellt werden für {icon_path}")
+                self.set_fallback_icon()
+        else:
+            print(f"WARNING: Icon-Datei nicht gefunden: {icon_path}")
+            self.set_fallback_icon()
+    
+    def set_fallback_icon(self):
+        """Setzt ein Fallback-Icon wenn das originale nicht gefunden wird"""
+        fallback_icons = {
+            "camera": "📷",
+            "labeling": "🏷️",
+            "augmentation": "🔄",
+            "splitting": "📊",
+            "training": "🧠",
+            "verification": "✅",
+            "detection": "👁️"
+        }
+        
+        emoji = fallback_icons.get(self.icon_name, "📦")
+        self.icon_label.setText(emoji)
+        self.icon_label.setStyleSheet("""
+            background: transparent;
+            border: none;
+            font-size: 32px;
+            color: #6c757d;
+        """)
     
     def set_style(self):
         """Setzt das Styling basierend auf dem Status"""
@@ -110,12 +190,12 @@ class MainMenu(QFrame):
             text_color = "#6b7280"
         
         self.setStyleSheet(f"""
-            MainMenu {{
+            ModernCard {{
                 background-color: {bg_color};
                 border: 2px solid {border_color};
                 border-radius: 12px;
             }}
-            MainMenu:hover {{
+            ModernCard:hover {{
                 border-color: {"#16a34a" if self.status == "ready" else "#2563eb" if self.status == "completed" else border_color};
             }}
             QLabel {{
@@ -131,6 +211,10 @@ class MainMenu(QFrame):
                 border-radius: 2px;
             }}
         """)
+        
+        # Icon neu laden wenn sich der Status ändert
+        if self.icon_label:
+            self.load_icon()
     
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -164,6 +248,9 @@ class MainMenu(QFrame):
         self.status = new_status
         self.set_style()
         self.setCursor(Qt.CursorShape.PointingHandCursor if self.status != "disabled" else Qt.CursorShape.ForbiddenCursor)
+        # Icon neu laden für Status-spezifische Darstellung
+        if self.icon_label:
+            self.load_icon()
 
 class WorkflowSection(QFrame):
     """Moderne Workflow-Sektion"""
@@ -244,7 +331,7 @@ class WorkflowSection(QFrame):
     def add_stretch(self):
         self.cards_layout.addStretch()
 
-class ModernMainMenu(QMainWindow):
+class MainMenu(QMainWindow):
     """Moderne Hauptmenü-Applikation"""
     
     def __init__(self):
@@ -467,13 +554,14 @@ class ModernMainMenu(QMainWindow):
         
         # 1. Datenerfassung
         data_section = WorkflowSection(
-            "Datenerfassung",
+            "1. Datenerfassung",
             "Sammeln und Organisieren von Bilddaten für das Training"
         )
         
-        camera_card = MainMenu(
-            "Kamera",
+        camera_card = ModernCard(
+            "1.1 Bild Erfassung",
             "Bilder aufnehmen mit integrierter Kamera oder Webcam",
+            "camera",
             "camera",
             self.get_card_status(WorkflowStep.CAMERA)
         )
@@ -484,29 +572,32 @@ class ModernMainMenu(QMainWindow):
 
         # 2. Datenbearbeitung
         processing_section = WorkflowSection(
-            "Datenbearbeitung", 
+            "2. Datenbearbeitung", 
             "Annotieren und Erweitern der Datenbasis"
         )
         
-        labeling_card = MainMenu(
-            "Labeling",
-            "Manuelle Annotation von Objekten in Bildern",
+        labeling_card = ModernCard(
+            "2.1 Labeling",
+            "Objekten in Bildern markieren (Labeling)",
+            "labeling",
             "labeling",
             self.get_card_status(WorkflowStep.LABELING)
         )
         labeling_card.clicked.connect(self.open_labeling)
         
-        augmentation_card = MainMenu(
-            "Augmentation",
+        augmentation_card = ModernCard(
+            "2.2 Augmentation",
             "Erweitern des Datensatzes durch Bildtransformationen",
+            "augmentation",
             "augmentation",
             self.get_card_status(WorkflowStep.AUGMENTATION)
         )
         augmentation_card.clicked.connect(self.open_augmentation)
         
-        splitting_card = MainMenu(
-            "Dataset Splitting",
+        splitting_card = ModernCard(
+            "2.4 Dataset Splitting",
             "Aufteilen in Training-, Validierungs- und Test-Sets",
+            "splitting",
             "splitting",
             self.get_card_status(WorkflowStep.SPLITTING)
         )
@@ -518,21 +609,23 @@ class ModernMainMenu(QMainWindow):
         
         # 3. Modellentwicklung
         model_section = WorkflowSection(
-            "Modellentwicklung",
+            "3. Modellentwicklung",
             "Training und Optimierung des KI-Modells"
         )
         
-        training_card = MainMenu(
-            "Training",
+        training_card = ModernCard(
+            "3.1 Training",
             "Trainieren des YOLO-Modells mit den vorbereiteten Daten",
+            "training",
             "training",
             self.get_card_status(WorkflowStep.TRAINING)
         )
         training_card.clicked.connect(self.open_training)
         
-        verification_card = MainMenu(
-            "Verifikation",
+        verification_card = ModernCard(
+            "3.2 Verifikation",
             "Bewertung und Validierung der Modell-Performance",
+            "verification",
             "verification",
             self.get_card_status(WorkflowStep.VERIFICATION)
         )
@@ -544,13 +637,14 @@ class ModernMainMenu(QMainWindow):
         
         # 4. Anwendung
         application_section = WorkflowSection(
-            "Anwendung",
+            "4. Anwendung",
             "Einsatz des trainierten Modells in der Praxis"
         )
         
-        detection_card = MainMenu(
-            "Live Detection",
+        detection_card = ModernCard(
+            "4.1 Live Detection",
             "Echtzeit-Objekterkennung mit dem trainierten Modell",
+            "detection",
             "detection",
             self.get_card_status(WorkflowStep.LIVE_DETECTION)
         )
@@ -920,6 +1014,6 @@ if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication
     
     app = QApplication(sys.argv)
-    window = ModernMainMenu()
+    window = MainMenu()
     window.show()
     sys.exit(app.exec())
