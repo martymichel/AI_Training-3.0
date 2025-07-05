@@ -22,17 +22,33 @@ class DatasetSplitterApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Dataset Splitter")
         self.setGeometry(100, 100, 800, 900)
+        self.setWindowState(Qt.WindowState.WindowMaximized)
         
         # Initialize splitter
         self.splitter = DatasetSplitter()
         
-        # Central widget and layout
+        # Central widget and main layout with sidebar
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setSpacing(20)
+        self.main_layout = QHBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # Sidebar for controls
+        self.sidebar = QWidget()
+        self.sidebar.setFixedWidth(320)
+        self.sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar_layout.setContentsMargins(10, 10, 10, 10)
+        self.sidebar_layout.setSpacing(15)
+        self.main_layout.addWidget(self.sidebar)
+
+        # Content area for preview and class naming
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.addWidget(self.content_widget)
         
-        # Class naming section
+        # Class naming section with preview
         self.class_group = QGroupBox("Class Names")
         self.class_layout = QVBoxLayout()
         self.class_group.setLayout(self.class_layout)
@@ -61,35 +77,35 @@ class DatasetSplitterApp(QMainWindow):
         # Store best images per class
         self.class_to_images = {}
         
-        # Directory selection
+        # Directory selection and split ratios in sidebar
         self.create_directory_group()
-        
-        # Add class naming section after directory selection
-        self.layout.addWidget(self.class_group)
+
+        # Add class naming section to content area
+        self.content_layout.addWidget(self.class_group)
         self.class_group.setVisible(False)
-        
+
         # Split ratios
         self.create_split_ratio_group()
-        
+
         # Progress display
         self.progress_text = QLabel("Ready to split dataset")
         self.progress_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.layout.addWidget(self.progress_text)
-        
+        self.sidebar_layout.addWidget(self.progress_text)
+
         # Start button
         self.start_button = QPushButton("Start Splitting")
         self.start_button.setStyleSheet("background-color: blue; color: white; font-size: 16px")
         self.start_button.clicked.connect(self.start_splitting)
-        self.layout.addWidget(self.start_button)
+        self.sidebar_layout.addWidget(self.start_button)
 
         # Button to continue with training
         self.next_button = QPushButton("Weiter zum Training")
         self.next_button.setMinimumHeight(40)
         self.next_button.clicked.connect(self.open_training_app)
-        self.layout.addWidget(self.next_button)
-        
-        # Add stretch at the bottom
-        self.layout.addStretch()
+        self.sidebar_layout.addWidget(self.next_button)
+
+        # Add stretch at the bottom of sidebar
+        self.sidebar_layout.addStretch()
         
         # Initialize thread
         self.split_thread = None
@@ -122,7 +138,7 @@ class DatasetSplitterApp(QMainWindow):
         dir_layout.addLayout(output_layout)
         
         dir_group.setLayout(dir_layout)
-        self.layout.addWidget(dir_group)
+        self.sidebar_layout.addWidget(dir_group)
 
     def create_split_ratio_group(self):
         """Create the split ratio selection group."""
@@ -160,7 +176,7 @@ class DatasetSplitterApp(QMainWindow):
         ratio_layout.addLayout(test_layout)
         
         ratio_group.setLayout(ratio_layout)
-        self.layout.addWidget(ratio_group)
+        self.sidebar_layout.addWidget(ratio_group)
 
     def update_splits(self):
         """Update split percentages ensuring they sum to 100."""
