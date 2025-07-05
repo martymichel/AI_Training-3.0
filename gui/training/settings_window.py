@@ -459,6 +459,16 @@ class TrainSettingsWindow(QMainWindow):
                     except Exception as e:
                         logger.error(f"Error registering model: {e}")
 
+                # Ask to continue with verification step
+                reply = QMessageBox.question(
+                    self,
+                    "Training abgeschlossen",
+                    "Training erfolgreich abgeschlossen!\nWeiter zur Verifikation?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.open_verification_app()
+
             elif progress == 0 and message:
                 self.training_active = False
                 self.start_button.setText("Start Training")
@@ -612,10 +622,31 @@ class TrainSettingsWindow(QMainWindow):
 
             # Workflow-Schritt markieren
             self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
-            
+
             return timestamp
 
+    def open_verification_app(self):
+        """Open verification window and close training window."""
+        try:
+            from gui.verification_app import LiveAnnotationApp
+            app = LiveAnnotationApp()
+            app.project_manager = getattr(self, 'project_manager', None)
+            if app.project_manager:
+                model_path = app.project_manager.get_current_model_path()
+                if not model_path:
+                    model_path = app.project_manager.get_latest_model_path()
+                if model_path and model_path.exists():
+                    app.model_line_edit.setText(str(model_path))
 
+                test_dir = app.project_manager.get_split_dir() / 'test' / 'images'
+                if not test_dir.exists() or not list(test_dir.glob('*.jpg')):
+                    test_dir = app.project_manager.get_labeled_dir()
+                app.folder_line_edit.setText(str(test_dir))
+
+            app.show()
+            self.close()
+        except Exception as e:
+            logger.error(f"Failed to open verification app: {e}")
 
 """
 Ergänzungen für gui/training/settings_window.py
