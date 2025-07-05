@@ -203,10 +203,10 @@ class ImageAugmentationApp(QMainWindow):
         self.start_button.clicked.connect(lambda: start_augmentation_process(self))
         left_layout.addWidget(self.start_button)
 
-        # Button to continue with dataset splitting
-        self.next_button = QPushButton("Weiter zum Splitter")
+        # Button to continue with label checking
+        self.next_button = QPushButton("Weiter zum Label Überprüfen")
         self.next_button.setMinimumHeight(40)
-        self.next_button.clicked.connect(self.open_splitter_app)
+        self.next_button.clicked.connect(self.open_label_checker_app)
         left_layout.addWidget(self.next_button)
 
         return left_panel
@@ -407,6 +407,25 @@ class ImageAugmentationApp(QMainWindow):
             self.close()
         except Exception as e:
             logger.error(f"Failed to open dataset splitter: {e}")
+
+    def open_label_checker_app(self):
+        """Open label checker and close augmentation window."""
+        try:
+            from gui.label_checker_app import FastYOLOChecker
+            app = FastYOLOChecker()
+            app.project_manager = self.project_manager
+            if self.project_manager:
+                dataset_dir = self.project_manager.get_augmented_dir()
+                if not list(dataset_dir.glob("*.jpg")) and not list(dataset_dir.glob("*.png")):
+                    dataset_dir = self.project_manager.get_labeled_dir()
+                if dataset_dir.exists():
+                    app.dataset_path = str(dataset_dir)
+                    app.load_dataset()
+            app.show()
+            self.close()
+        except Exception as e:
+            logger.error(f"Failed to open label checker: {e}")
+
 
 # ==================== AUGMENTATION APP INTEGRATION ====================
 

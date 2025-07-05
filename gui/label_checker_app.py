@@ -203,6 +203,8 @@ class ThumbnailWidget(QLabel):
 class FastYOLOChecker(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        self.project_manager = None
         
         # Daten
         self.image_files = []
@@ -355,7 +357,17 @@ class FastYOLOChecker(QMainWindow):
             }
         """)
         header_layout.addWidget(self.stats_label)
-        
+
+        # Next button to open splitter
+        self.next_button = QPushButton("Weiter zum Splitter")
+        self.next_button.clicked.connect(self.open_splitter_app)
+        self.next_button.setStyleSheet(
+            "QPushButton {background-color: #28a745; color: white; border: none; padding: 6px 12px;"
+            "border-radius: 4px; font-weight: bold; font-size: 11px;}"
+            "QPushButton:hover {background-color: #218838;}"
+        )
+        header_layout.addWidget(self.next_button)
+
         parent_layout.addWidget(header_frame)
     
     def setup_gallery(self, parent):
@@ -1065,6 +1077,32 @@ class FastYOLOChecker(QMainWindow):
             stats_text += f" | 🗑️ {len(self.deleted_files)}"
         
         self.stats_label.setText(stats_text)
+
+    def open_splitter_app(self):
+        """Öffnet den Dataset-Splitter und schließt den Label Checker."""
+        try:
+            from gui.dataset_splitter import DatasetSplitterApp
+            app = DatasetSplitterApp()
+            app.project_manager = getattr(self, 'project_manager', None)
+            if app.project_manager:
+                aug_dir = app.project_manager.get_augmented_dir()
+                labeled_dir = app.project_manager.get_labeled_dir()
+                aug_files = list(aug_dir.glob("*.jpg")) + list(aug_dir.glob("*.png"))
+                source_dir = str(aug_dir) if aug_files else str(labeled_dir)
+                app.source_path.setText(source_dir)
+                app.output_path.setText(str(app.project_manager.get_split_dir()))
+
+                if source_dir:
+                    app.analyze_classes(source_dir)
+                    classes = app.project_manager.get_classes()
+                    for class_id, class_name in classes.items():
+                        if class_id in app.class_inputs:
+                            app.class_inputs[class_id].setText(class_name)
+
+            app.show()
+            self.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler", f"Splitter konnte nicht geöffnet werden:\n{str(e)}")        
     
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Left:

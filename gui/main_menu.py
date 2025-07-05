@@ -593,6 +593,15 @@ class MainMenu(QMainWindow):
             self.get_card_status(WorkflowStep.AUGMENTATION)
         )
         augmentation_card.clicked.connect(self.open_augmentation)
+
+        label_checker_card = ModernCard(
+            "2.3 Label Check",
+            "Labels überprüfen und bereinigen",
+            "labeling",
+            "label_checker",
+            self.get_card_status(WorkflowStep.SPLITTING)
+        )
+        label_checker_card.clicked.connect(self.open_label_checker)
         
         splitting_card = ModernCard(
             "2.4 Dataset Splitting",
@@ -605,6 +614,7 @@ class MainMenu(QMainWindow):
         
         processing_section.add_card(labeling_card)
         processing_section.add_card(augmentation_card)
+        processing_section.add_card(label_checker_card)
         processing_section.add_card(splitting_card)
         
         # 3. Modellentwicklung
@@ -715,6 +725,7 @@ class MainMenu(QMainWindow):
                     'camera': WorkflowStep.CAMERA,
                     'labeling': WorkflowStep.LABELING,
                     'augmentation': WorkflowStep.AUGMENTATION,
+                    'label_checker': WorkflowStep.SPLITTING,
                     'splitting': WorkflowStep.SPLITTING,
                     'training': WorkflowStep.TRAINING,
                     'verification': WorkflowStep.VERIFICATION,
@@ -802,6 +813,25 @@ class MainMenu(QMainWindow):
             self.windows['augmentation'] = app
         
         self.windows['augmentation'].show()
+
+    def open_label_checker(self):
+        """Öffnet Label-Checker mit Projekt-Kontext"""
+        if 'label_checker' not in self.windows:
+            from gui.label_checker_app import FastYOLOChecker
+            app = FastYOLOChecker()
+            app.project_manager = self.project_manager
+
+            dataset_dir = self.project_manager.get_augmented_dir()
+            if not list(dataset_dir.glob("*.jpg")) and not list(dataset_dir.glob("*.png")):
+                dataset_dir = self.project_manager.get_labeled_dir()
+
+            if dataset_dir.exists():
+                app.dataset_path = str(dataset_dir)
+                app.load_dataset()
+
+            self.windows['label_checker'] = app
+
+        self.windows['label_checker'].show()        
     
     def open_dataset_viewer(self):
         """Öffnet Dataset-Viewer"""
