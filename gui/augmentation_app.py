@@ -202,7 +202,7 @@ class ImageAugmentationApp(QMainWindow):
         self.start_button = QPushButton("Augmentierung starten")
         self.start_button.clicked.connect(lambda: start_augmentation_process(self))
         left_layout.addWidget(self.start_button)
-        
+
         # Button to continue with dataset splitting
         self.next_button = QPushButton("Weiter zum Splitter")
         self.next_button.setMinimumHeight(40)
@@ -407,7 +407,6 @@ class ImageAugmentationApp(QMainWindow):
             self.close()
         except Exception as e:
             logger.error(f"Failed to open dataset splitter: {e}")
-
 
 # ==================== AUGMENTATION APP INTEGRATION ====================
 

@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer, QPoint
 
 import utils.labeling_utils as utils
 from project_manager import ProjectManager, WorkflowStep
+from gui.augmentation_preview import load_sample_image
 
 # -------------------------------
 # Zoomable Graphics View

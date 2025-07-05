@@ -1900,7 +1900,7 @@ class CameraApp(QMainWindow):
             app.show()
             self.close()
         except Exception as e:
-            logger.error(f"Failed to open labeling app: {e}")            
+            logger.error(f"Failed to open labeling app: {e}")
     
     def closeEvent(self, event):
         """Handle close event"""
