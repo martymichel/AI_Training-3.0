@@ -648,6 +648,19 @@ class TrainSettingsWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to open verification app: {e}")
 
+    def notify_main_menu(self):
+        """Informiert das Hauptmenü, den Workflow-Status zu aktualisieren."""
+        try:
+            from PyQt6.QtWidgets import QApplication
+            from gui.main_menu import MainMenu
+
+            for widget in QApplication.topLevelWidgets():
+                if isinstance(widget, MainMenu):
+                    widget.update_workflow_status()
+                    break
+        except Exception as e:
+            logger.error(f"Failed to notify main menu: {e}")            
+
 """
 Ergänzungen für gui/training/settings_window.py
 """

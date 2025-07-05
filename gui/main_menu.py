@@ -948,7 +948,7 @@ class MainMenu(QMainWindow):
             
             if model_path and model_path.exists():
                 app.model_path = str(model_path)
-                app.model_path_label.setText(model_path.name)
+                app.model_label.setText(model_path.name)
             
             yaml_path = self.project_manager.get_yaml_file()
             if yaml_path.exists():
