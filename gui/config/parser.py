@@ -18,9 +18,9 @@ class ConfigParser:
     def create_default_config(self):
         """Create default configuration file"""
         self.config['DEFAULT'] = {
-            'IP': '',
+            'IP': '192.168.1.99',
             'USER': 'admin',
-            'PASSWORD': 'admin'
+            'PASSWORD': 'Flex'
         }
         self.save_config()
     

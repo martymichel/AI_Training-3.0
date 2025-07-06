@@ -19,6 +19,8 @@ import subprocess
 import logging
 from datetime import datetime
 from pathlib import Path
+import json
+
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -437,6 +439,27 @@ class LiveAnnotationApp(QWidget):
         # Sliderpositionen updaten
         self.threshold_slider.setValue(conf_value)
         self.iou_slider.setValue(iou_value)
+
+        # Persist optimal values to project settings
+        if hasattr(self, "project_manager") and self.project_manager:
+            class_ids = self.project_manager.get_classes().keys()
+            class_thresholds = {str(cid): results['conf'] for cid in class_ids}
+            update = {
+                'iou_threshold': results['iou'],
+                'class_thresholds': class_thresholds,
+            }
+            self.project_manager.update_live_detection_settings(update)
+            det_file = Path(self.project_manager.project_root) / "detection_settings.json"
+            try:
+                current = {}
+                if det_file.exists():
+                    with open(det_file, 'r', encoding='utf-8') as f:
+                        current = json.load(f)
+                current.update(update)
+                with open(det_file, 'w', encoding='utf-8') as f:
+                    json.dump(current, f, indent=4)
+            except Exception as e:
+                logger.error(f"Failed to save detection settings: {e}")
 
         # Labels dazu aktualisieren
         self.threshold_value_label.setText(f"{conf_value/100:.2f}")

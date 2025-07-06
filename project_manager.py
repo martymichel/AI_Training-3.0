@@ -1278,7 +1278,7 @@ class ProjectConfig:
             
             # Connection Settings
             'connection': {
-                'ip': '',
+                'ip': '192.168.1.99',
                 'user': 'admin',
                 'password': 'Flex'
             },

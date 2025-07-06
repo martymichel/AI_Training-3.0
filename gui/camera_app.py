@@ -103,7 +103,7 @@ class IDSNXTCameraApp:
                     settings = json.load(f)
 
             default_settings = {
-                "connection": {"ip": "", "user": "admin", "password": "Flex"},
+                "connection": {"ip": "192.168.1.99", "user": "admin", "password": "Flex"},
                 "streaming": {"stream_type": "stream1", "fps": 15, "quality": 70},
                 "camera": {"exposure_time": 10000, "gain": 0.0, "flip_horizontal": False, "flip_vertical": False},
                 "detection": {"model_path": "", "yaml_path": "", "motion_threshold": 110, "iou_threshold": 0.45, "class_thresholds": {}, "enabled": False},
@@ -188,9 +188,9 @@ class IDSNXTCameraApp:
         try:
             # Connection settings
             conn = self.settings.get('connection', {})
-            self.ip_var.set(conn.get('ip', ''))
+            self.ip_var.set(conn.get('ip', '192.168.1.99'))
             self.user_var.set(conn.get('user', 'admin'))
-            self.password_var.set(conn.get('password', 'admin'))
+            self.password_var.set(conn.get('password', 'Flex'))
             
             # Streaming settings
             stream = self.settings.get('streaming', {})

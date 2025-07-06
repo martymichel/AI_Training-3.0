@@ -367,6 +367,9 @@ class DatasetSplitterApp(QMainWindow):
             # Projekt-Integration hinzufügen:
             if hasattr(self, 'project_manager') and self.project_manager:
                 self.project_manager.mark_step_completed(WorkflowStep.SPLITTING)
+                yaml_file = Path(self.output_path.text()) / "data.yaml"
+                if yaml_file.exists():
+                    self.project_manager.set_yaml_path(str(yaml_file))
         else:
             QMessageBox.critical(self, "Error", f"Failed to split dataset: {message}")
 
