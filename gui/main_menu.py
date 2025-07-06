@@ -651,8 +651,8 @@ class MainMenu(QMainWindow):
         
         # 4. Anwendung
         application_section = WorkflowSection(
-            "4. Anwendung",
-            "Einsatz des trainierten Modells in der Praxis"
+            "4. Anwendung Live testen",
+            "Einsatz des trainierten Modells in der Praxis mit IDS nxt Kamera"
         )
         
         detection_card = ModernCard(
@@ -746,9 +746,13 @@ class MainMenu(QMainWindow):
     def open_camera(self):
         """Öffnet die neue Kamera-Anwendung"""
         if self.camera_process is None or self.camera_process.poll() is not None:
-            script = Path(__file__).parent / "camera_app.py"
             settings_dir = str(self.project_manager.project_root)
-            self.camera_process = subprocess.Popen([sys.executable, str(script), settings_dir])
+            self.camera_process = subprocess.Popen([
+                sys.executable,
+                "-m",
+                "gui.camera_app",
+                settings_dir,
+            ])
         else:
             QMessageBox.information(self, "Info", "Die Kamera-Anwendung läuft bereits.")
 
@@ -939,11 +943,11 @@ class MainMenu(QMainWindow):
     def open_detection(self):
         """Startet die Tkinter-basierte Live-Detection"""
         if self.detection_process is None or self.detection_process.poll() is not None:
-            script = Path(__file__).parent / "camera_app.py"
             settings_dir = str(self.project_manager.project_root)
             self.detection_process = subprocess.Popen([
                 sys.executable,
-                str(script),
+                "-m",
+                "gui.camera_app",
                 settings_dir,
                 "--show-detection",
             ])
