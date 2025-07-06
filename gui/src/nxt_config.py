@@ -1,4 +1,4 @@
-from config.parser import ConfigParser
+from ..config.parser import ConfigParser
 
 
 class NXTConfig:

@@ -4,7 +4,7 @@ import urllib.parse
 import urllib.request
 from base64 import b64encode
 from enum import Enum
-from utils.dto.rest_result import RestResult
+from ..utils.dto.rest_result import RestResult
 
 
 

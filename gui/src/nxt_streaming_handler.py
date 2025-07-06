@@ -1,8 +1,8 @@
-from errors.streaming_handler_error import InvalidStream
-from src.nxt_rest_connection import NXTRestConnection
-from utils.streams.stream1 import Stream1
-from utils.streams.stream2 import Stream2
-from utils.streams.stream3 import Stream3
+from ..errors.streaming_handler_error import InvalidStream
+from .nxt_rest_connection import NXTRestConnection
+from ..utils.streams.stream1 import Stream1
+from ..utils.streams.stream2 import Stream2
+from ..utils.streams.stream3 import Stream3
 
 
 class NXTStreamingHandler:

@@ -10,6 +10,7 @@ import yaml
 import numpy as np
 import cv2
 from pathlib import Path
+import os
 
 # YOLO Detection imports
 try:
@@ -20,14 +21,15 @@ except ImportError:
     print("⚠️ Ultralytics YOLO nicht verfügbar. Objekterkennung deaktiviert.")
 
 # Import IDS NXT API components
-from src.nxt_rest_connection import NXTRestConnection
-from src.nxt_camera_handler_base import NXTCameraHandlerBase
-from src.nxt_streaming_handler import NXTStreamingHandler
-from src.nxt_config import NXTConfig
-
+from .src.nxt_rest_connection import NXTRestConnection
+from .src.nxt_camera_handler_base import NXTCameraHandlerBase
+from .src.nxt_streaming_handler import NXTStreamingHandler
+from .src.nxt_config import NXTConfig
 
 class IDSNXTCameraApp:
-    def __init__(self, root):
+    def __init__(self, root, settings_dir="."):
+        self.root = root
+        self.settings_dir = Path(settings_dir)
         self.root = root
         self.root.title("IDS NXT Kamera Live-Streaming")
         # Windows Fenster maximieren
@@ -41,7 +43,7 @@ class IDSNXTCameraApp:
         self.streaming_handler = None
         
         # Einstellungen-Management
-        self.settings_file = "camera_settings.json"
+        self.settings_file = self.settings_dir / "camera_settings.json"
         self.settings = self.load_all_settings()
         
         # Streaming-Variablen
@@ -68,7 +70,7 @@ class IDSNXTCameraApp:
         self.yolo_model = None
         self.class_names = {}
         self.detection_enabled = False
-        self.detection_settings_file = "detection_settings.json"
+        self.detection_settings_file = self.settings_dir / "detection_settings.json"
         self.detection_settings = self.load_detection_settings()
         self.motion_threshold = 110
         self.prev_gray = None
@@ -90,8 +92,8 @@ class IDSNXTCameraApp:
     def load_all_settings(self):
         """Lädt alle Einstellungen aus der JSON-Datei"""
         try:
-            if os.path.exists('camera_settings.json'):
-                with open('camera_settings.json', 'r', encoding='utf-8') as f:
+            if self.settings_file.exists():
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
                     
                 # Validate and merge with defaults
@@ -189,7 +191,7 @@ class IDSNXTCameraApp:
             # Detection settings are updated by their respective methods
             
             # Write to file
-            with open('camera_settings.json', 'w', encoding='utf-8') as f:
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
                 
         except Exception as e:
@@ -1748,10 +1750,10 @@ class IDSNXTCameraApp:
             return frame
 
 
-def main():
+def main(settings_dir="."):
     """Hauptfunktion"""
     root = tk.Tk()
-    app = IDSNXTCameraApp(root)
+    app = IDSNXTCameraApp(root, settings_dir=settings_dir)
     
     # Programm beenden
     def on_closing():
@@ -1768,4 +1770,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    dir_arg = sys.argv[1] if len(sys.argv) > 1 else "."
+    main(dir_arg)

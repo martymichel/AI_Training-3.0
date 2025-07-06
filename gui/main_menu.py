@@ -4,6 +4,8 @@ Sauberes, professionelles Design ohne Emojis
 """
 import sys
 import os
+import subprocess
+from pathlib import Path
 
 # Projekt-Root zum Python-Path hinzufügen
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -339,6 +341,7 @@ class MainMenu(QMainWindow):
         self.project_manager = None
         self.windows = {}
         self.workflow_sections = []
+        self.camera_process = None
         
         # Projekt-Manager beim Start öffnen
         self.init_project()
@@ -740,16 +743,14 @@ class MainMenu(QMainWindow):
     # ==================== TOOL-OPENING METHODS ====================
     
     def open_camera(self):
-        """Öffnet Kamera-App mit Projekt-Kontext"""
-        if 'camera' not in self.windows:
-            from gui.camera_app import CameraApp
-            app = CameraApp()
-            app.project_manager = self.project_manager
-            app.output_dir = str(self.project_manager.get_raw_images_dir())
-            app.dir_label.setText(f"Output Directory: {app.output_dir}")
-            self.windows['camera'] = app
-        
-        self.windows['camera'].show()
+        """Öffnet die neue Kamera-Anwendung"""
+        if self.camera_process is None or self.camera_process.poll() is not None:
+            script = Path(__file__).parent / "camera_app.py"
+            settings_dir = str(self.project_manager.project_root)
+            self.camera_process = subprocess.Popen([sys.executable, str(script), settings_dir])
+        else:
+            QMessageBox.information(self, "Info", "Die Kamera-Anwendung läuft bereits.")
+
         self.project_manager.mark_step_completed(WorkflowStep.CAMERA)
         self.update_workflow_status()
     

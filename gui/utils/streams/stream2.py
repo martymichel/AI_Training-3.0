@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from utils.streams.stream_parent import StreamParent
+from .stream_parent import StreamParent
 
 
 class Stream2(StreamParent):

@@ -1,11 +1,11 @@
 from enum import Enum
 
-from utils.dto.camera_roi import CameraRoi
-from src.nxt_rest_connection import NXTRestConnection
-from utils.dto.rest_result import RestResult
-from utils.settings.camera_settings_base import CameraSettingsBase
-from utils.settings.color_settings_base import ColorSettingsBase
-from utils.settings.trigger_settings_base import TriggerSettingsBase
+from ..utils.dto.camera_roi import CameraRoi
+from .nxt_rest_connection import NXTRestConnection
+from ..utils.dto.rest_result import RestResult
+from ..utils.settings.camera_settings_base import CameraSettingsBase
+from ..utils.settings.color_settings_base import ColorSettingsBase
+from ..utils.settings.trigger_settings_base import TriggerSettingsBase
 
 
 class NXTCameraHandlerBase:

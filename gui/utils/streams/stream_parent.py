@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from errors.read_only_parameter_error import ReadOnlyParameterError
+from ...errors.read_only_parameter_error import ReadOnlyParameterError
 
 
 class StreamParent:
