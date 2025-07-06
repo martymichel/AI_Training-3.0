@@ -101,7 +101,7 @@ class IDSNXTCameraApp:
                     settings = json.load(f)
 
             default_settings = {
-                "connection": {"ip": "", "user": "admin", "password": "admin"},
+                "connection": {"ip": "", "user": "admin", "password": "Flex"},
                 "streaming": {"stream_type": "stream1", "fps": 15, "quality": 70},
                 "camera": {"exposure_time": 10000, "gain": 0.0, "flip_horizontal": False, "flip_vertical": False},
                 "detection": {"model_path": "", "yaml_path": "", "motion_threshold": 110, "iou_threshold": 0.45, "class_thresholds": {}, "enabled": False},
@@ -417,17 +417,26 @@ class IDSNXTCameraApp:
         detection_status_frame = ttk.LabelFrame(streaming_tab, text="Objekterkennung Status", padding="5")
         detection_status_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
-        self.detection_status_label = ttk.Label(detection_status_frame, text="Objekterkennung: Inaktiv", 
-                                              foreground="orange")
-        self.detection_status_label.grid(row=0, column=0, padx=(0, 10))
-        
-        self.motion_status_label = ttk.Label(detection_status_frame, text="Motion: --", 
-                                           foreground="blue")
-        self.motion_status_label.grid(row=0, column=1, padx=(0, 10))
-        
-        self.objects_count_label = ttk.Label(detection_status_frame, text="Objekte: 0", 
-                                           foreground="green")
-        self.objects_count_label.grid(row=0, column=2)
+        self.streaming_detection_status_label = ttk.Label(
+            detection_status_frame,
+            text="Objekterkennung: Inaktiv",
+            foreground="orange",
+        )
+        self.streaming_detection_status_label.grid(row=0, column=0, padx=(0, 10))
+
+        self.streaming_motion_status_label = ttk.Label(
+            detection_status_frame,
+            text="Motion: --",
+            foreground="blue",
+        )
+        self.streaming_motion_status_label.grid(row=0, column=1, padx=(0, 10))
+
+        self.streaming_objects_count_label = ttk.Label(
+            detection_status_frame,
+            text="Objekte: 0",
+            foreground="green",
+        )
+        self.streaming_objects_count_label.grid(row=0, column=2)
     
     def create_system_monitor_tab(self):
         """Erstellt das System-Monitor-Tab"""
@@ -1551,6 +1560,11 @@ class IDSNXTCameraApp:
                 self.yolo_model = YOLO(self.model_path_var.get())
                 self.detection_enabled = True
                 self.detection_status_label.configure(text="Status: Aktiv", foreground="green")
+                if hasattr(self, "streaming_detection_status_label"):
+                    self.streaming_detection_status_label.configure(
+                        text="Objekterkennung: Aktiv",
+                        foreground="green",
+                    )
                 print(f"✅ YOLO Model geladen: {self.model_path_var.get()}")
                 
             except Exception as e:
@@ -1561,6 +1575,11 @@ class IDSNXTCameraApp:
             self.detection_enabled = False
             self.yolo_model = None
             self.detection_status_label.configure(text="Status: Inaktiv", foreground="red")
+            if hasattr(self, "streaming_detection_status_label"):
+                self.streaming_detection_status_label.configure(
+                    text="Objekterkennung: Inaktiv",
+                    foreground="orange",
+                )
             print("❌ Objekterkennung deaktiviert")
 
         # Persist state
@@ -1695,6 +1714,10 @@ class IDSNXTCameraApp:
             # Status aktualisieren
             motion_status = "Statisch" if self.is_static else f"Bewegung ({max_diff:.1f})"
             self.motion_status_label.configure(text=f"Motion: {motion_status}")
+            if hasattr(self, "streaming_motion_status_label"):
+                self.streaming_motion_status_label.configure(
+                    text=f"Motion: {motion_status}"
+                )
             
             # Nur bei statischen Bildern Detection durchführen
             if not self.is_static:

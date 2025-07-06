@@ -1280,7 +1280,7 @@ class ProjectConfig:
             'connection': {
                 'ip': '',
                 'user': 'admin',
-                'password': 'admin'
+                'password': 'Flex'
             },
             
             # Motion Detection
