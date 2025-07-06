@@ -342,6 +342,7 @@ class MainMenu(QMainWindow):
         self.windows = {}
         self.workflow_sections = []
         self.camera_process = None
+        self.detection_process = None
         
         # Projekt-Manager beim Start öffnen
         self.init_project()
@@ -936,37 +937,21 @@ class MainMenu(QMainWindow):
         self.windows['verification'].show()
     
     def open_detection(self):
-        """Öffnet Live-Detection mit Projekt-Kontext"""
-        if 'detection' not in self.windows:
-            from gui.live_detection import LiveDetectionApp
-            app = LiveDetectionApp()
-            app.project_manager = self.project_manager
-            
-            # Automatische Pfad-Setzung
-            model_path = self.project_manager.get_current_model_path()
-            if not model_path:
-                model_path = self.project_manager.get_latest_model_path()
-            
-            if model_path and model_path.exists():
-                app.model_path = str(model_path)
-                app.video_label.setText(model_path.name)
-            
-            yaml_path = self.project_manager.get_yaml_file()
-            if yaml_path.exists():
-                try:
-                    import yaml
-                    with open(yaml_path, 'r', encoding='utf-8') as f:
-                        yaml_data = yaml.safe_load(f)
-                        app.class_names = yaml_data.get('names', {})
-                        app.num_classes = len(app.class_names)
-                        app.yaml_path_label.setText(yaml_path.name)
-                except Exception as e:
-                    print(f"Error loading YAML: {e}")
-            
-            app.check_ready()
-            self.windows['detection'] = app
-        
-        self.windows['detection'].show()
+        """Startet die Tkinter-basierte Live-Detection"""
+        if self.detection_process is None or self.detection_process.poll() is not None:
+            script = Path(__file__).parent / "camera_app.py"
+            settings_dir = str(self.project_manager.project_root)
+            self.detection_process = subprocess.Popen([
+                sys.executable,
+                str(script),
+                settings_dir,
+                "--show-detection",
+            ])
+        else:
+            QMessageBox.information(self, "Info", "Die Live-Detection läuft bereits.")
+
+        self.project_manager.mark_step_completed(WorkflowStep.LIVE_DETECTION)
+        self.update_workflow_status()
     
     def open_dashboard(self):
         """Öffnet Training-Dashboard"""

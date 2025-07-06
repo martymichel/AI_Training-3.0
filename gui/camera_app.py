@@ -522,6 +522,7 @@ class IDSNXTCameraApp:
         """Erstellt das Objekterkennungs-Tab"""
         detection_tab = ttk.Frame(self.notebook)
         self.notebook.add(detection_tab, text="Objekterkennung")
+        self.detection_tab = detection_tab
         
         # Hauptlayout
         main_frame = ttk.Frame(detection_tab)
@@ -1750,11 +1751,16 @@ class IDSNXTCameraApp:
             return frame
 
 
-def main(settings_dir="."):
+def main(settings_dir=".", show_detection=False):
     """Hauptfunktion"""
     root = tk.Tk()
     app = IDSNXTCameraApp(root, settings_dir=settings_dir)
-    
+
+    if show_detection and hasattr(app, "detection_tab"):
+        try:
+            app.notebook.select(app.detection_tab)
+        except Exception:
+            pass
     # Programm beenden
     def on_closing():
         if app.streaming_active:
@@ -1770,6 +1776,11 @@ def main(settings_dir="."):
 
 
 if __name__ == "__main__":
-    import sys
-    dir_arg = sys.argv[1] if len(sys.argv) > 1 else "."
-    main(dir_arg)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="IDS NXT Camera App")
+    parser.add_argument("settings_dir", nargs="?", default=".", help="Projektverzeichnis")
+    parser.add_argument("--show-detection", action="store_true", help="Detection-Tab beim Start anzeigen")
+    args = parser.parse_args()
+
+    main(args.settings_dir, args.show_detection)

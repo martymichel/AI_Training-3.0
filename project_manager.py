@@ -1252,13 +1252,14 @@ class ProjectConfig:
         if self.training_settings is None:
             self.training_settings = {}
         if self.live_detection_settings is None:
-            self.live_detection_settings = self._get_default_live_detection_settings()
+            self.live_detection_settings = ProjectConfig.get_default_live_detection_settings()
         if self.workflow_status is None:
             self.workflow_status = {step.value: False for step in WorkflowStep}
         if self.models is None:
             self.models = []
     
-    def _get_default_live_detection_settings(self) -> Dict:
+    @staticmethod
+    def get_default_live_detection_settings() -> Dict:
         """Standard Live Detection Settings"""
         return {
             # Model und Dataset
@@ -1403,8 +1404,8 @@ class ProjectManager:
                 # Stelle sicher, dass live_detection_settings existiert
                 if 'live_detection_settings' not in data:
                     logger.info("Live Detection Settings fehlen - erstelle Standard-Konfiguration")
-                    data['live_detection_settings'] = ProjectConfig()._get_default_live_detection_settings()
-                
+                    data['live_detection_settings'] = ProjectConfig.get_default_live_detection_settings()
+
                 config = ProjectConfig(**data)
                 logger.info(f"Enhanced Konfiguration erfolgreich geladen: {config.project_name}")
                 return config
@@ -1432,7 +1433,7 @@ class ProjectManager:
             'camera_settings': {},
             'augmentation_settings': {},
             'training_settings': {},
-            'live_detection_settings': ProjectConfig()._get_default_live_detection_settings(),
+            'live_detection_settings': ProjectConfig.get_default_live_detection_settings(),
             'workflow_status': {step.value: False for step in WorkflowStep},
             'models': [],
             'current_model': None
@@ -1452,7 +1453,7 @@ class ProjectManager:
             camera_settings={},
             augmentation_settings={},
             training_settings={},
-            live_detection_settings=ProjectConfig()._get_default_live_detection_settings(),
+            live_detection_settings=ProjectConfig.get_default_live_detection_settings(),
             workflow_status={step.value: False for step in WorkflowStep},
             models=[],
             current_model=None
