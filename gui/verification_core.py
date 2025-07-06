@@ -27,19 +27,21 @@ class OptimizeThresholdsWorker(QThread):
     progress_updated = pyqtSignal(int)
     stage_updated = pyqtSignal(str)
     optimization_finished = pyqtSignal(dict)
-    
-    def __init__(self, model_path, image_list, step_size=5, log_file=None):
+
+    def __init__(self, model_path, image_list, step_size=5,
+                 log_file=None, output_dir=None):
         super().__init__()
         self.model_path = model_path
         self.image_list = image_list
         self.step_size = step_size
         self.total_progress = 0
         self.log_file = log_file
+        self.output_dir = output_dir
         
         # Set up detailed logging
         self.logger = logging.getLogger("threshold_optimization")
         self.logger.setLevel(logging.INFO)
-        
+
         # Add file handler if log file is provided
         if log_file:
             fh = logging.FileHandler(log_file)
@@ -249,18 +251,21 @@ class OptimizeThresholdsWorker(QThread):
         try:
             model = YOLO(self.model_path)
             self.model = model
-            
-            # Set up log file if not already done
-            if not self.log_file:
+
+            # Determine output directory
+            if not self.output_dir:
                 model_dir = os.path.dirname(os.path.abspath(self.model_path))
                 parent_dir = os.path.dirname(model_dir)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                self.log_file = os.path.join(parent_dir, f"threshold_optimization_{timestamp}.log")
-                self.logger.addHandler(logging.FileHandler(self.log_file))
+                self.output_dir = os.path.join(parent_dir, f"verification_{timestamp}")
+            os.makedirs(self.output_dir, exist_ok=True)
 
-            model_dir = os.path.dirname(os.path.abspath(self.model_path))
-            parent_dir = os.path.dirname(model_dir)
-            self.plot_dir = os.path.join(parent_dir, "optimization_plots")
+            # Set up log file
+            if not self.log_file:
+                self.log_file = os.path.join(self.output_dir, "threshold_optimization.log")
+            self.logger.addHandler(logging.FileHandler(self.log_file))
+
+            self.plot_dir = os.path.join(self.output_dir, "optimization_plots")
             os.makedirs(self.plot_dir, exist_ok=True)
 
             best_result = {
@@ -362,12 +367,13 @@ class AnnotationWorker(QThread):
     progress_updated = pyqtSignal(int)
     summary_signal = pyqtSignal(str, float, str)  # text, percentage, misannotated_dir
     finished = pyqtSignal()
-    
-    def __init__(self, model_path, image_list, misannotated_dir, threshold, iou_threshold, tile_size=200):
+
+    def __init__(self, model_path, image_list, output_dir, threshold, iou_threshold, tile_size=200):
         super().__init__()
         self.model_path = model_path
         self.image_list = image_list
-        self.misannotated_dir = misannotated_dir
+        self.output_dir = output_dir
+        self.misannotated_dir = ""
         self.threshold = threshold
         self.iou_threshold = iou_threshold
         self.tile_size = tile_size
@@ -378,11 +384,15 @@ class AnnotationWorker(QThread):
         """Execute image annotation and verification."""
         model = YOLO(self.model_path)
         total_images = len(self.image_list)
-        
-        model_dir = os.path.dirname(os.path.abspath(self.model_path))
-        parent_dir = os.path.dirname(model_dir)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.misannotated_dir = os.path.join(parent_dir, f"misannotated_{timestamp}")
+
+        if not self.output_dir:
+            model_dir = os.path.dirname(os.path.abspath(self.model_path))
+            parent_dir = os.path.dirname(model_dir)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.output_dir = os.path.join(parent_dir, f"verification_{timestamp}")
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        self.misannotated_dir = os.path.join(self.output_dir, "misannotated")
         os.makedirs(self.misannotated_dir, exist_ok=True)
         
         current_index = 0

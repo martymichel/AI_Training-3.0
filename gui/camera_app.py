@@ -125,7 +125,12 @@ class IDSNXTCameraApp:
             for k in ["exposure_time", "gain", "flip_horizontal", "flip_vertical"]:
                 if k in pm_live:
                     settings["camera"][k] = pm_live[k]
-            for k in ["model_path", "yaml_path", "motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
+
+            if pm_live.get("model_path"):
+                settings["detection"]["model_path"] = pm_live["model_path"]
+            if pm_live.get("yaml_path"):
+                settings["detection"]["yaml_path"] = pm_live["yaml_path"]
+            for k in ["motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
                 if k in pm_live:
                     target_key = "enabled" if k in ["detection_enabled", "enabled"] else k
                     settings["detection"][target_key] = pm_live[k]
@@ -545,7 +550,7 @@ class IDSNXTCameraApp:
         motion_scale.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.motion_label = ttk.Label(control_frame, text=f"Wert: {self.motion_var.get()}")
         self.motion_label.grid(row=3, column=0, pady=(0, 10))
-        self.motion_var.trace('w', lambda *args: self.save_detection_settings(False))
+        self.motion_var.trace_add('w', lambda *args: self.save_detection_settings(False))
         
         # IoU Threshold
         ttk.Label(control_frame, text="IoU Threshold:").grid(row=4, column=0, sticky=tk.W, pady=(0, 5))
@@ -555,7 +560,7 @@ class IDSNXTCameraApp:
         iou_scale.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.iou_label = ttk.Label(control_frame, text=f"Wert: {self.iou_var.get():.2f}")
         self.iou_label.grid(row=6, column=0, pady=(0, 10))
-        self.iou_var.trace('w', lambda *args: self.save_detection_settings(False))
+        self.iou_var.trace_add('w', lambda *args: self.save_detection_settings(False))
         
         # Einstellungen speichern/laden
         settings_btn_frame = ttk.Frame(control_frame)
@@ -1483,8 +1488,8 @@ class IDSNXTCameraApp:
             saved_threshold = self.detection_settings.get('class_thresholds', {}).get(str(class_id), 0.7)
             threshold_var = tk.DoubleVar(value=saved_threshold)
             self.class_threshold_vars[class_id] = threshold_var
-            threshold_var.trace('w', lambda *args: self.save_detection_settings(False))
-            
+            threshold_var.trace_add('w', lambda *args: self.save_detection_settings(False))
+
             # Scale
             scale = ttk.Scale(class_frame, from_=0.1, to=0.95, variable=threshold_var,
                              orient="horizontal", length=150, 
@@ -1588,7 +1593,7 @@ class IDSNXTCameraApp:
             
         except Exception as e:
             messagebox.showerror("Fehler", f"Fehler beim Speichern: {e}")
-
+    
     def load_detection_settings(self):
         """Lädt Detection-Einstellungen aus Datei"""
         try:
@@ -1598,7 +1603,12 @@ class IDSNXTCameraApp:
                     settings = json.load(f)
 
             pm_live = self.project_manager.get_live_detection_settings()
-            for key in ["model_path", "yaml_path", "motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
+            # Only overwrite path fields if a valid value is stored in the project
+            if pm_live.get("model_path"):
+                settings["model_path"] = pm_live["model_path"]
+            if pm_live.get("yaml_path"):
+                settings["yaml_path"] = pm_live["yaml_path"]
+            for key in ["motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
                 if key in pm_live:
                     target_key = "enabled" if key in ["detection_enabled", "enabled"] else key
                     settings[target_key] = pm_live[key]

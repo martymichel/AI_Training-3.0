@@ -15,7 +15,10 @@ Live Annotation App – Ungebremste Verarbeitung mit Logging und Umbenennung fal
 import os
 import glob
 import sys
+import subprocess
 import logging
+from datetime import datetime
+from pathlib import Path
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -308,11 +311,36 @@ class LiveAnnotationApp(QWidget):
         self.open_plot_dir_button.clicked.connect(self.open_optimization_plot_dir)
         sidebar_layout.addWidget(self.open_plot_dir_button)
 
+        # Button to jump directly to Live Detection
+        self.open_detection_button = QPushButton("→ Live Detection")
+        self.open_detection_button.setVisible(False)
+        self.open_detection_button.clicked.connect(self.open_live_detection)
+        sidebar_layout.addWidget(self.open_detection_button)
+
+        self.session_output_dir = None
+
     def open_optimization_plot_dir(self):
         if self.optimize_worker and hasattr(self.optimize_worker, "plot_dir"):
             plot_dir = self.optimize_worker.plot_dir
-            if os.path.isdir(plot_dir):
-                os.startfile(plot_dir) if os.name == 'nt' else os.system(f'xdg-open "{plot_dir}"')
+        elif self.session_output_dir:
+            plot_dir = self.session_output_dir / "optimization_plots"
+        else:
+            plot_dir = None
+        if plot_dir and os.path.isdir(str(plot_dir)):
+            os.startfile(str(plot_dir)) if os.name == 'nt' else os.system(f'xdg-open "{plot_dir}"')
+
+    def open_live_detection(self):
+        """Close this app and launch the live detection app."""
+        if hasattr(self, "project_manager") and self.project_manager:
+            settings_dir = str(self.project_manager.project_root)
+            subprocess.Popen([
+                sys.executable,
+                "-m",
+                "gui.camera_app",
+                settings_dir,
+                "--show-detection",
+            ])
+        self.close()
 
     def update_threshold_label(self, value):
         threshold = value / 100.0
@@ -357,7 +385,18 @@ class LiveAnnotationApp(QWidget):
         if not self.image_list:
             QMessageBox.warning(self, "Error", "Keine Bilder im Testverzeichnis gefunden")
             return
-        
+
+        # Prepare output directory
+        if hasattr(self, "project_manager") and self.project_manager:
+            base_dir = self.project_manager.get_verification_dir() / "verification_app"
+        else:
+            base_dir = Path("verification_app")
+        base_dir.mkdir(parents=True, exist_ok=True)
+        if not self.session_output_dir:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.session_output_dir = base_dir / timestamp
+            self.session_output_dir.mkdir(parents=True, exist_ok=True)
+
         # Disable UI during optimization
         self.optimize_button.setEnabled(False)
         self.start_button.setEnabled(False)
@@ -367,7 +406,8 @@ class LiveAnnotationApp(QWidget):
         self.optimize_worker = OptimizeThresholdsWorker(
             model_path=model_path,
             image_list=self.image_list,
-            step_size=self.step_size_spin.value()
+            step_size=self.step_size_spin.value(),
+            output_dir=str(self.session_output_dir)
         )
         self.optimize_worker.progress_updated.connect(self.progress_bar.setValue)
         self.optimize_worker.stage_updated.connect(lambda msg: self.summary_output.setPlainText(msg))
@@ -442,16 +482,27 @@ class LiveAnnotationApp(QWidget):
         if not self.image_list:
             QMessageBox.warning(self, "Error", "Keine Bilder im Testverzeichnis gefunden")
             return
-        
+
+        # Prepare output directory
+        if hasattr(self, "project_manager") and self.project_manager:
+            base_dir = self.project_manager.get_verification_dir() / "verification_app"
+        else:
+            base_dir = Path("verification_app")
+        base_dir.mkdir(parents=True, exist_ok=True)
+        if not self.session_output_dir:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.session_output_dir = base_dir / timestamp
+            self.session_output_dir.mkdir(parents=True, exist_ok=True)
+
         # Get threshold values from sliders
         threshold = self.threshold_slider.value() / 100.0
         iou_threshold = self.iou_slider.value() / 100.0
-        
+
         # Start worker thread
         self.worker = AnnotationWorker(
             model_path=model_path,
             image_list=self.image_list,
-            misannotated_dir="",
+            output_dir=str(self.session_output_dir),
             threshold=threshold,
             iou_threshold=iou_threshold,
             tile_size=256
@@ -552,10 +603,14 @@ class LiveAnnotationApp(QWidget):
         self.misannotated_link.setOpenExternalLinks(False)
         self.misannotated_link.linkActivated.connect(self.open_misannotated_dir)
 
+        # Show button to jump to live detection
+        self.open_detection_button.setVisible(True)
+
     def annotation_finished(self):
         self.start_button.setEnabled(True)
         self.optimize_button.setEnabled(True)
         logger.info("Test-Annotation & Modellverifikation abgeschlossen.")
+        self.open_detection_button.setVisible(True)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
