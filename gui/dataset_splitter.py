@@ -377,7 +377,8 @@ class DatasetSplitterApp(QMainWindow):
             app = TrainSettingsWindow()
             app.project_manager = getattr(self, 'project_manager', None)
             if app.project_manager:
-                app.project_input.setText(str(app.project_manager.get_models_dir().parent))
+                # Ensure training folders are created inside "05_models"
+                app.project_input.setText(str(app.project_manager.get_models_dir()))
                 app.name_input.setText(app.project_manager.get_next_experiment_name())
                 app.data_input.setText(str(app.project_manager.get_yaml_file()))
 

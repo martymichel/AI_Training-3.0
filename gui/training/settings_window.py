@@ -234,7 +234,11 @@ class TrainSettingsWindow(QMainWindow):
             return
             
         # Reset project and experiment fields
-        self.project_input.setText(Config.training.project_dir)
+        if hasattr(self, "project_manager") and self.project_manager:
+            # Use the project's models directory if available
+            self.project_input.setText(str(self.project_manager.get_models_dir()))
+        else:
+            self.project_input.setText(Config.training.project_dir)
         self.name_input.setText("")
         self.data_input.setText("")
 

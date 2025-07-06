@@ -912,7 +912,8 @@ class MainMenu(QMainWindow):
             app.project_manager = self.project_manager
             
             # Automatische Pfad-Setzung
-            app.project_input.setText(str(self.project_manager.get_models_dir().parent))
+            # Store training outputs inside the project's "05_models" directory
+            app.project_input.setText(str(self.project_manager.get_models_dir()))
             app.name_input.setText(self.project_manager.get_next_experiment_name())
             app.data_input.setText(str(self.project_manager.get_yaml_file()))
             
