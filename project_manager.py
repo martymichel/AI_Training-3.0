@@ -206,6 +206,21 @@ class ProjectManagerDialog(QDialog):
         
         self.project_list = QListWidget()
         self.project_list.setMinimumHeight(300)
+        self.project_list.setAlternatingRowColors(True)
+        self.project_list.setStyleSheet(
+            """
+            QListWidget::item {
+                border-bottom: 1px solid #ccc;
+                padding: 5px;
+            }
+            QListWidget::item:selected {
+                background-color: #0a4273;
+            }
+            QListWidget::item:alternate {
+                background: #242f38;
+            }
+            """
+        )
         self.project_list.itemDoubleClicked.connect(self.open_selected_project)
         left_layout.addWidget(self.project_list)
         
@@ -213,7 +228,7 @@ class ProjectManagerDialog(QDialog):
         self.project_info_label = QLabel("Wählen Sie ein Projekt für Details")
         self.project_info_label.setStyleSheet("""
             QLabel {
-                background-color: #f0f0f0;
+                background-color: #242f38;
                 border: 1px solid #ddd;
                 border-radius: 5px;
                 padding: 10px;
@@ -232,7 +247,7 @@ class ProjectManagerDialog(QDialog):
         open_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
-                color: white;
+                color: #000;
                 border-radius: 5px;
                 padding: 10px 20px;
                 font-weight: bold;

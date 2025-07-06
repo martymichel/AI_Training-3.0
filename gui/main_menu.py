@@ -381,11 +381,11 @@ class MainMenu(QMainWindow):
         # Hauptstil
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f3f4f6;
+                background-color: #15264a;
             }
             QMenuBar {
-                background-color: white;
-                border-bottom: 1px solid #e5e7eb;
+                background-color: black;
+                border-bottom: 1px solid #041b4a;
                 padding: 8px 0;
                 font-size: 13px;
             }
@@ -395,12 +395,12 @@ class MainMenu(QMainWindow):
                 font-weight: 500;
             }
             QMenuBar::item:selected {
-                background-color: #f3f4f6;
+                background-color: #15264a;
                 color: #111827;
             }
             QMenu {
-                background-color: white;
-                border: 1px solid #e5e7eb;
+                background-color: black;
+                border: 1px solid #041b4a;
                 border-radius: 8px;
                 padding: 8px 0;
             }
@@ -409,7 +409,7 @@ class MainMenu(QMainWindow):
                 color: #374151;
             }
             QMenu::item:selected {
-                background-color: #f3f4f6;
+                background-color: #15264a;
                 color: #111827;
             }
             QScrollArea {
@@ -418,7 +418,7 @@ class MainMenu(QMainWindow):
             }
             QScrollBar:vertical {
                 border: none;
-                background: #f3f4f6;
+                background: #15264a;
                 width: 8px;
                 border-radius: 4px;
             }
@@ -558,7 +558,7 @@ class MainMenu(QMainWindow):
         header_widget.setStyleSheet("""
             QWidget {
                 background-color: white;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom: 1px solid #041b4a;
             }
             QLabel {
                 color: #111827;
@@ -718,7 +718,7 @@ class MainMenu(QMainWindow):
         footer_layout = QVBoxLayout(footer_widget)
         footer_layout.setContentsMargins(40, 20, 40, 20)
         
-        footer_label = QLabel("AI Vision Tools • Entwickelt von Michel Marty für Flex Precision Plastic Solutions AG © 2025")
+        footer_label = QLabel("AI Vision Tools • Entwickelt von Michel Marty © 2025")
         footer_font = QFont()
         footer_font.setPointSize(10)
         footer_label.setFont(footer_font)
@@ -1056,7 +1056,6 @@ class MainMenu(QMainWindow):
             f"Erstellt: {self.project_manager.config.created_date[:10]}\n"
             f"Letzte Änderung: {self.project_manager.config.last_modified[:10]}\n\n"
             f"Entwickelt von Michel Marty\n"
-            f"für Flex Precision Plastic Solutions AG\n"
             f"© 2025"
         )
     
