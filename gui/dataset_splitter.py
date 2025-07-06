@@ -378,7 +378,7 @@ class DatasetSplitterApp(QMainWindow):
             app.project_manager = getattr(self, 'project_manager', None)
             if app.project_manager:
                 app.project_input.setText(str(app.project_manager.get_models_dir().parent))
-                app.name_input.setText("training")
+                app.name_input.setText(app.project_manager.get_next_experiment_name())
                 app.data_input.setText(str(app.project_manager.get_yaml_file()))
 
                 saved_settings = app.project_manager.get_training_settings()
@@ -393,7 +393,14 @@ class DatasetSplitterApp(QMainWindow):
                             elif hasattr(widget, 'setChecked'):
                                 widget.setChecked(bool(value))
 
+                try:
+                    app.load_last_training_results()
+                except Exception:
+                    pass
+
             app.show()
+            if self.project_manager:
+                self.project_manager.mark_step_completed(WorkflowStep.SPLITTING)
             self.close()
         except Exception as e:
             logging.error(f"Failed to open training app: {e}")

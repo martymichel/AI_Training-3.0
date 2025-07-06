@@ -557,6 +557,20 @@ class TrainSettingsWindow(QMainWindow):
 
         setup_plots(self.figure, self.canvas)
 
+    def load_last_training_results(self):
+        """Lädt Ergebnisse des letzten Trainingslaufs in das Dashboard."""
+        if hasattr(self, "project_manager") and self.project_manager:
+            last_exp = self.project_manager.get_last_experiment_name()
+            if not last_exp:
+                return
+            from gui.training.training_utils import check_and_load_results_csv
+            df = check_and_load_results_csv(
+                str(self.project_manager.project_root), last_exp
+            )
+            if df is not None:
+                self.last_results_check = os.path.getmtime(df.filepath)
+                self.signals.results_updated.emit(df)        
+
     def closeEvent(self, event):
         """Handle window close event."""
         # Check if training is active

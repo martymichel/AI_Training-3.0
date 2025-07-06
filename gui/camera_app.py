@@ -11,6 +11,8 @@ import numpy as np
 import cv2
 from pathlib import Path
 import os
+import subprocess
+import sys
 
 # YOLO Detection imports
 try:
@@ -290,6 +292,9 @@ class IDSNXTCameraApp:
         # Tab 3: Objekterkennung
         if YOLO_AVAILABLE:
             self.create_detection_tab()
+
+        # Tab 4: Gallery
+        self.create_gallery_tab()
         
         # Grid-Gewichtung
         main_frame.columnconfigure(0, weight=1)
@@ -350,9 +355,14 @@ class IDSNXTCameraApp:
         self.stop_stream_btn.grid(row=0, column=3, padx=(0, 5))
         
         # Einzelbild-Button
-        self.capture_btn = ttk.Button(streaming_frame, text="Einzelbild aufnehmen", 
+        self.capture_btn = ttk.Button(streaming_frame, text="Einzelbild aufnehmen",
                                      command=self.capture_image, state="disabled")
         self.capture_btn.grid(row=0, column=4, padx=(10, 0))
+
+        # Workflow-Weiterleitung zur Labeling-App
+        self.labeling_btn = ttk.Button(streaming_frame, text="Weiter zur Labeling App",
+                                       command=self.open_labeling_app)
+        self.labeling_btn.grid(row=0, column=5, padx=(10, 0))
         
         # Video-Display-Frame
         video_frame = ttk.LabelFrame(streaming_tab, text="Live-Bild", padding="5")
@@ -1104,9 +1114,11 @@ class IDSNXTCameraApp:
             return
         
         try:
-            filename = f"capture_{int(time.time())}.jpg"
-            self.camera_handler.save_camera_image_latest(filename)
-            messagebox.showinfo("Erfolg", f"Bild gespeichert als: {filename}")
+            raw_dir = self.project_manager.get_raw_images_dir()
+            filename = raw_dir / f"capture_{int(time.time())}.jpg"
+            self.camera_handler.save_camera_image_latest(str(filename))
+            messagebox.showinfo("Erfolg", f"Bild gespeichert als: {filename.name}")
+            self.refresh_gallery()
         except Exception as e:
             messagebox.showerror("Fehler", f"Fehler beim Aufnehmen: {str(e)}")
     
@@ -1140,6 +1152,86 @@ class IDSNXTCameraApp:
                 self.camera_handler.set_camera_setting("FlipVertical", self.flip_v_var.get())
             except Exception as e:
                 print(f"Fehler beim Setzen der Spiegelung: {e}")
+
+    # ==================== Gallery ====================
+    def create_gallery_tab(self):
+        """Erstellt das Gallery-Tab zum Durchsehen der aufgenommenen Bilder"""
+        gallery_tab = ttk.Frame(self.notebook)
+        self.notebook.add(gallery_tab, text="Gallery")
+
+        list_frame = ttk.Frame(gallery_tab)
+        list_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+
+        self.gallery_listbox = tk.Listbox(list_frame, width=30)
+        self.gallery_listbox.pack(side=tk.LEFT, fill=tk.Y)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.gallery_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.gallery_listbox.configure(yscrollcommand=scrollbar.set)
+        self.gallery_listbox.bind("<<ListboxSelect>>", self.display_selected_image)
+
+        image_frame = ttk.Frame(gallery_tab)
+        image_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5, pady=5)
+        self.gallery_image_label = ttk.Label(image_frame)
+        self.gallery_image_label.pack(expand=True, fill=tk.BOTH)
+
+        btn_frame = ttk.Frame(gallery_tab)
+        btn_frame.pack(side=tk.BOTTOM, pady=5)
+        ttk.Button(btn_frame, text="Bild löschen", command=self.delete_selected_image).pack()
+
+        self.gallery_photo = None
+        self.refresh_gallery()
+
+    def refresh_gallery(self):
+        """Lädt Dateiliste aus dem Raw-Images-Verzeichnis"""
+        raw_dir = self.project_manager.get_raw_images_dir()
+        self.gallery_listbox.delete(0, tk.END)
+        for img_path in sorted(raw_dir.glob('*')):
+            if img_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+                self.gallery_listbox.insert(tk.END, img_path.name)
+
+    def display_selected_image(self, event=None):
+        """Zeigt ausgewähltes Bild in der Vorschau"""
+        selection = self.gallery_listbox.curselection()
+        if not selection:
+            return
+        filename = self.gallery_listbox.get(selection[0])
+        img_path = self.project_manager.get_raw_images_dir() / filename
+        try:
+            img = Image.open(img_path)
+            img.thumbnail((600, 600))
+            self.gallery_photo = ImageTk.PhotoImage(img)
+            self.gallery_image_label.configure(image=self.gallery_photo)
+        except Exception as e:
+            self.gallery_image_label.configure(text=f"Fehler beim Laden: {e}")
+
+    def delete_selected_image(self):
+        """Löscht ausgewähltes Bild aus dem Raw-Ordner"""
+        selection = self.gallery_listbox.curselection()
+        if not selection:
+            return
+        filename = self.gallery_listbox.get(selection[0])
+        img_path = self.project_manager.get_raw_images_dir() / filename
+        if messagebox.askyesno("Löschen", f"Bild '{filename}' wirklich löschen?"):
+            try:
+                img_path.unlink()
+                self.refresh_gallery()
+                self.gallery_image_label.configure(image="")
+            except Exception as e:
+                messagebox.showerror("Fehler", f"Bild konnte nicht gelöscht werden: {e}")
+
+    # ==================== Workflow Navigation ====================
+    def open_labeling_app(self):
+        """Speichert Einstellungen, schließt die Kamera-App und öffnet die Labeling-App"""
+        self.save_all_settings()
+        if self.streaming_active:
+            self.stop_streaming()
+        if self.monitor_active:
+            self.stop_monitoring()
+        try:
+            subprocess.Popen([sys.executable, "-m", "gui.image_labeling"])
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Labeling-App konnte nicht gestartet werden: {e}")
+        self.root.destroy()
     
     def start_monitoring(self):
         """System-Monitoring starten"""

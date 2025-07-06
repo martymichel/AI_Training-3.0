@@ -894,7 +894,7 @@ class MainMenu(QMainWindow):
             
             # Automatische Pfad-Setzung
             app.project_input.setText(str(self.project_manager.get_models_dir().parent))
-            app.name_input.setText("training")
+            app.name_input.setText(self.project_manager.get_next_experiment_name())
             app.data_input.setText(str(self.project_manager.get_yaml_file()))
             
             # Gespeicherte Settings laden
@@ -910,6 +910,12 @@ class MainMenu(QMainWindow):
                         elif hasattr(widget, 'setChecked'):
                             widget.setChecked(bool(value))
             
+            # Letztes Trainingsergebnis laden
+            try:
+                app.load_last_training_results()
+            except Exception:
+                pass
+
             self.windows['training'] = app
         
         self.windows['training'].show()

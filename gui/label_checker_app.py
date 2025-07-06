@@ -20,6 +20,8 @@ from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont
 from PIL import Image, ImageDraw
 import io
 import warnings
+from project_manager import WorkflowStep
+
 
 # PIL Sicherheitseinstellungen
 Image.MAX_IMAGE_PIXELS = None
@@ -1100,9 +1102,11 @@ class FastYOLOChecker(QMainWindow):
                             app.class_inputs[class_id].setText(class_name)
 
             app.show()
+            if self.project_manager:
+                self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
             self.close()
         except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Splitter konnte nicht geöffnet werden:\n{str(e)}")        
+            QMessageBox.critical(self, "Fehler", f"Splitter konnte nicht geöffnet werden:\n{str(e)}")
     
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Left:

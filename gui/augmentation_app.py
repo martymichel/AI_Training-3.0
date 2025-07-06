@@ -422,6 +422,8 @@ class ImageAugmentationApp(QMainWindow):
                     app.dataset_path = str(dataset_dir)
                     app.load_dataset()
             app.show()
+            if self.project_manager:
+                self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
             self.close()
         except Exception as e:
             logger.error(f"Failed to open label checker: {e}")

@@ -12,9 +12,19 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.ticker import MaxNLocator
 import logging
 
-from PyQt6.QtWidgets import QTabWidget, QVBoxLayout, QScrollArea, QLabel, QWidget, QMessageBox
+from PyQt6.QtWidgets import (
+    QTabWidget,
+    QVBoxLayout,
+    QScrollArea,
+    QLabel,
+    QWidget,
+    QMessageBox,
+    QDialog,
+    QDialogButtonBox,
+)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+
 
 # Import metrics info
 from gui.training.metrics_info import create_metrics_info_tab
@@ -162,44 +172,34 @@ def on_plot_info_click(event, window):
     if hasattr(event.artist, 'metric_key'):
         metric_key = event.artist.metric_key
         info_text = METRIC_INFO.get(metric_key, "No additional information available.")
-        
-        # Create styled message box
-        msg_box = QMessageBox(window)
-        msg_box.setWindowTitle(f"Information: {metric_key}")
-        msg_box.setTextFormat(Qt.TextFormat.RichText)
-        msg_box.setText(info_text)
-        msg_box.setIcon(QMessageBox.Icon.Information)
-        
-        # Style the message box - make it wider to fix icon/text layout
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-            }
-            QMessageBox QLabel {
-                color: #333333;
-                font-size: 12px;
-                min-width: 600px;
-            }
-            QLabel#qt_msgbox_label {
-                margin-right: 40px;
-            }
-            QPushButton {
-                background-color: #1976D2;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1565C0;
-            }
-        """)
-        
-        # Manually adjust the layout to give more space to text
-        msg_box.setMinimumWidth(800)
-        
-        msg_box.exec()
+
+        show_info_dialog(metric_key, info_text, window)
+
+def show_info_dialog(metric_key: str, info_text: str, parent=None):
+    """Show a scrollable dialog with metric information."""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(f"Information: {metric_key}")
+    dialog.setMinimumSize(600, 400)
+
+    layout = QVBoxLayout(dialog)
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    content = QLabel()
+    content.setObjectName("infoLabel")
+    content.setTextFormat(Qt.TextFormat.RichText)
+    content.setWordWrap(True)
+    content.setText(info_text)
+    scroll.setWidget(content)
+
+    layout.addWidget(scroll)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+    buttons.accepted.connect(dialog.accept)
+    layout.addWidget(buttons)
+
+    dialog.setLayout(layout)
+    dialog.exec()
 
 def setup_plots(figure, canvas):
     """Initialize the matplotlib plots."""

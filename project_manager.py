@@ -1903,7 +1903,39 @@ class ProjectManager:
     def get_live_detection_settings(self) -> Dict:
         """Gibt Live Detection Einstellungen zurück - ENHANCED"""
         return self.config.live_detection_settings.copy()
-    
+
+    # ==================== TRAINING EXPERIMENT UTILS ====================
+
+    def _collect_experiment_indices(self) -> List[int]:
+        """Liest existierende Trainingsordner und gibt deren Index zurück."""
+        pattern = f"Training_{self.config.project_name}_"
+        indices = []
+        try:
+            for entry in self.project_root.iterdir():
+                if entry.is_dir() and entry.name.startswith(pattern):
+                    try:
+                        idx = int(entry.name.replace(pattern, ""))
+                        indices.append(idx)
+                    except ValueError:
+                        continue
+        except Exception as e:
+            logger.warning(f"Fehler beim Sammeln der Trainingsordner: {e}")
+        return indices
+
+    def get_last_experiment_name(self) -> Optional[str]:
+        """Gibt den Namen des letzten Trainings-Experiments zurück."""
+        indices = self._collect_experiment_indices()
+        if not indices:
+            return None
+        last_idx = max(indices)
+        return f"Training_{self.config.project_name}_{last_idx:02d}"
+
+    def get_next_experiment_name(self) -> str:
+        """Erzeugt den Namen für das nächste Training-Experiment."""
+        indices = self._collect_experiment_indices()
+        next_idx = (max(indices) + 1) if indices else 1
+        return f"Training_{self.config.project_name}_{next_idx:02d}"
+        
     # ==================== SPECIFIC LIVE DETECTION METHODS ====================
     
     def set_model_path(self, model_path: str):
