@@ -218,20 +218,20 @@ class IDSNXTCameraApp:
         """Setzt automatisches Speichern bei Änderungen auf"""
         try:
             # Trace connection variables
-            self.ip_var.trace('w', lambda *args: self.save_all_settings())
-            self.user_var.trace('w', lambda *args: self.save_all_settings())
-            self.password_var.trace('w', lambda *args: self.save_all_settings())
+            self.ip_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.user_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.password_var.trace_add('write', lambda *args: self.save_all_settings())
             
             # Trace streaming variables  
-            self.stream_var.trace('w', lambda *args: self.save_all_settings())
-            self.fps_var.trace('w', lambda *args: self.save_all_settings())
-            self.quality_var.trace('w', lambda *args: self.save_all_settings())
+            self.stream_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.fps_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.quality_var.trace_add('write', lambda *args: self.save_all_settings())
             
             # Trace camera variables
-            self.exposure_var.trace('w', lambda *args: self.save_all_settings())
-            self.gain_var.trace('w', lambda *args: self.save_all_settings())
-            self.flip_h_var.trace('w', lambda *args: self.save_all_settings())
-            self.flip_v_var.trace('w', lambda *args: self.save_all_settings())
+            self.exposure_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.gain_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.flip_h_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.flip_v_var.trace_add('write', lambda *args: self.save_all_settings())
             
         except Exception as e:
             print(f"Fehler beim Setup des Auto-Save: {e}")
@@ -252,21 +252,21 @@ class IDSNXTCameraApp:
         self.ip_var = tk.StringVar()
         ip_entry = ttk.Entry(connection_frame, textvariable=self.ip_var, width=20)
         ip_entry.grid(row=0, column=1, padx=(0, 10))
-        self.ip_var.trace('w', lambda *args: self.save_all_settings())
+        self.ip_var.trace_add('write', lambda *args: self.save_all_settings())
         
         # Benutzer-Eingabe
         ttk.Label(connection_frame, text="Benutzer:").grid(row=0, column=2, sticky=tk.W, padx=(10, 5))
         self.user_var = tk.StringVar()
         user_entry = ttk.Entry(connection_frame, textvariable=self.user_var, width=15)
         user_entry.grid(row=0, column=3, padx=(0, 10))
-        self.user_var.trace('w', lambda *args: self.save_all_settings())
+        self.user_var.trace_add('write', lambda *args: self.save_all_settings())
         
         # Passwort-Eingabe
         ttk.Label(connection_frame, text="Passwort:").grid(row=0, column=4, sticky=tk.W, padx=(10, 5))
         self.password_var = tk.StringVar()
         password_entry = ttk.Entry(connection_frame, textvariable=self.password_var, show="*", width=15)
         password_entry.grid(row=0, column=5, padx=(0, 10))
-        self.password_var.trace('w', lambda *args: self.save_all_settings())
+        self.password_var.trace_add('write', lambda *args: self.save_all_settings())
         
         # Verbinden-Button
         self.connect_btn = ttk.Button(connection_frame, text="Verbinden", command=self.connect_camera)
@@ -390,13 +390,13 @@ class IDSNXTCameraApp:
         flip_h_check = ttk.Checkbutton(control_frame, text="Horizontal spiegeln", 
                                       variable=self.flip_h_var, command=self.update_flip)
         flip_h_check.grid(row=6, column=0, sticky=tk.W, pady=(0, 5))
-        self.flip_h_var.trace('w', lambda *args: self.save_all_settings())
+        self.flip_h_var.trace_add('write', lambda *args: self.save_all_settings())
         
         self.flip_v_var = tk.BooleanVar()
         flip_v_check = ttk.Checkbutton(control_frame, text="Vertikal spiegeln", 
                                       variable=self.flip_v_var, command=self.update_flip)
         flip_v_check.grid(row=7, column=0, sticky=tk.W, pady=(0, 10))
-        self.flip_v_var.trace('w', lambda *args: self.save_all_settings())
+        self.flip_v_var.trace_add('write', lambda *args: self.save_all_settings())
         
         # Info-Textfeld
         info_frame = ttk.LabelFrame(control_frame, text="Geräteinformationen", padding="5")
@@ -550,7 +550,7 @@ class IDSNXTCameraApp:
         motion_scale.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.motion_label = ttk.Label(control_frame, text=f"Wert: {self.motion_var.get()}")
         self.motion_label.grid(row=3, column=0, pady=(0, 10))
-        self.motion_var.trace_add('w', lambda *args: self.save_detection_settings(False))
+        self.motion_var.trace_add('write', lambda *args: self.save_detection_settings(False))
         
         # IoU Threshold
         ttk.Label(control_frame, text="IoU Threshold:").grid(row=4, column=0, sticky=tk.W, pady=(0, 5))
@@ -560,7 +560,7 @@ class IDSNXTCameraApp:
         iou_scale.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.iou_label = ttk.Label(control_frame, text=f"Wert: {self.iou_var.get():.2f}")
         self.iou_label.grid(row=6, column=0, pady=(0, 10))
-        self.iou_var.trace_add('w', lambda *args: self.save_detection_settings(False))
+        self.iou_var.trace_add('write', lambda *args: self.save_detection_settings(False))
         
         # Einstellungen speichern/laden
         settings_btn_frame = ttk.Frame(control_frame)
@@ -1488,7 +1488,7 @@ class IDSNXTCameraApp:
             saved_threshold = self.detection_settings.get('class_thresholds', {}).get(str(class_id), 0.7)
             threshold_var = tk.DoubleVar(value=saved_threshold)
             self.class_threshold_vars[class_id] = threshold_var
-            threshold_var.trace_add('w', lambda *args: self.save_detection_settings(False))
+            threshold_var.trace_add('write', lambda *args: self.save_detection_settings(False))
 
             # Scale
             scale = ttk.Scale(class_frame, from_=0.1, to=0.95, variable=threshold_var,
