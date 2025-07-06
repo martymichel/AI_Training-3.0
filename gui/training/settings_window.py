@@ -456,6 +456,8 @@ class TrainSettingsWindow(QMainWindow):
                     try:
                         self.project_manager.register_new_model(model_path)
                         self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+                        self.notify_main_menu()
+
                     except Exception as e:
                         logger.error(f"Error registering model: {e}")
 
@@ -636,6 +638,7 @@ class TrainSettingsWindow(QMainWindow):
 
             # Workflow-Schritt markieren
             self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+            self.notify_main_menu()
 
             return timestamp
 
@@ -720,5 +723,6 @@ class TrainingWindowExtensions:
 
             # Workflow-Schritt markieren
             self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+            self.notify_main_menu()
 
             return timestamp    

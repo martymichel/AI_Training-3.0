@@ -489,15 +489,34 @@ class MainMenu(QMainWindow):
         
         # Extras Menu
         extras_menu = menubar.addMenu('Extras')
-        
+
         dataset_action = QAction('Dataset Viewer', self)
         dataset_action.triggered.connect(self.open_dataset_viewer)
         extras_menu.addAction(dataset_action)
-        
+
         dashboard_action = QAction('Training Dashboard', self)
         dashboard_action.triggered.connect(self.open_dashboard)
         extras_menu.addAction(dashboard_action)
-        
+
+        # Workflow Status Menu
+        status_menu = menubar.addMenu('Status manuell setzen')
+
+        step_actions = {
+            '1.1 Bild Erfassung': WorkflowStep.CAMERA,
+            '2.1 Labeling': WorkflowStep.LABELING,
+            '2.2 Augmentation': WorkflowStep.AUGMENTATION,
+            '2.3 Label Check': WorkflowStep.SPLITTING,
+            '2.4 Dataset Splitting': WorkflowStep.SPLITTING,
+            '3.1 Training': WorkflowStep.TRAINING,
+            '3.2 Verifikation': WorkflowStep.VERIFICATION,
+            '4.1 Live Detection': WorkflowStep.LIVE_DETECTION,
+        }
+
+        for title, step in step_actions.items():
+            action = QAction(title, self)
+            action.triggered.connect(lambda _, s=step: self.mark_step_manual(s))
+            status_menu.addAction(action)
+
         # Hilfe Menu
         help_menu = menubar.addMenu('Hilfe')
         
@@ -1001,6 +1020,18 @@ class MainMenu(QMainWindow):
                 self.update_workflow_status()
             else:
                 self.close()
+
+    def mark_step_manual(self, step: WorkflowStep):
+        """Markiert einen Workflow-Schritt manuell als erledigt."""
+        if not self.project_manager:
+            return
+        self.project_manager.mark_step_completed(step)
+        self.update_workflow_status()
+        QMessageBox.information(
+            self,
+            "Status aktualisiert",
+            f"{step.name} wurde als erledigt markiert."
+        )
     
     def open_continual_learning(self):
         """Öffnet Continual Learning Dialog"""
