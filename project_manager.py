@@ -1,6 +1,6 @@
 """
 Zentrales Projekt-Management System für AI Vision Tools
-Robuste Version mit ausführlicher Fehlerbehandlung und Logging
+Enhanced Version mit Live Detection Settings und Status-Synchronisation
 """
 
 import os
@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QTextEdit, QProgressBar, QWidget, QGridLayout, QFrame,
     QCheckBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QFont
 
 # Logging-Konfiguration
@@ -668,6 +668,59 @@ Modelle: {project_data['models']}"""
         event.accept()
 
 
+# ==================== STATUS SYNCHRONISATION ====================
+
+class DetectionStatusManager(QObject):
+    """Zentraler Manager für Status-Synchronisation zwischen Tabs"""
+    
+    # Signals für Status-Updates
+    detection_status_updated = pyqtSignal(dict)  # Vollständiger Status
+    detection_active_changed = pyqtSignal(bool)  # Nur An/Aus Status
+    detection_results_updated = pyqtSignal(dict)  # Erkennungs-Resultate
+    
+    def __init__(self):
+        super().__init__()
+        self.current_status = {
+            'active': False,
+            'motion_detection_enabled': True,
+            'motion_value': 0.0,
+            'is_static': False,
+            'detected_objects': {},
+            'total_detections': 0,
+            'model_loaded': False,
+            'camera_connected': False,
+            'fps': 0,
+            'frame_count': 0
+        }
+    
+    def update_detection_active(self, active: bool):
+        """Aktualisiert aktiven Status der Objekterkennung"""
+        if self.current_status['active'] != active:
+            self.current_status['active'] = active
+            self.detection_active_changed.emit(active)
+            self.detection_status_updated.emit(self.current_status.copy())
+    
+    def update_motion_detection(self, enabled: bool):
+        """Aktualisiert Motion Detection Status"""
+        if self.current_status['motion_detection_enabled'] != enabled:
+            self.current_status['motion_detection_enabled'] = enabled
+            self.detection_status_updated.emit(self.current_status.copy())
+    
+    def update_detection_results(self, results: dict):
+        """Aktualisiert Erkennungs-Resultate"""
+        self.current_status.update(results)
+        self.detection_results_updated.emit(results)
+        self.detection_status_updated.emit(self.current_status.copy())
+    
+    def get_current_status(self) -> dict:
+        """Gibt aktuellen Status zurück"""
+        return self.current_status.copy()
+
+
+# Globaler Status-Manager
+detection_status_manager = DetectionStatusManager()
+
+
 # ==================== WORKFLOW-STATUS WIDGET - ROBUST ====================
 
 from PyQt6.QtWidgets import QWidget, QGridLayout, QFrame, QCheckBox
@@ -1151,48 +1204,7 @@ Generiert von AI Vision Tools Project Manager
     return report
 
 
-if __name__ == "__main__":
-    # Test-Code für direktes Ausführen
-    print("🧪 Teste Projekt-Manager...")
-    
-    try:
-        from PyQt6.QtWidgets import QApplication
-        import sys
-        
-        app = QApplication(sys.argv)
-        
-        # Test Projekt-Manager Dialog
-        dialog = ProjectManagerDialog()
-        dialog.show()
-        
-        sys.exit(app.exec())
-        
-    except Exception as e:
-        print(f"❌ Test fehlgeschlagen: {e}")
-        import traceback
-        traceback.print_exc()# project_manager.py - Robuste Version mit verbesserter Fehlerbehandlung
-"""
-Zentrales Projekt-Management System für AI Vision Tools
-Robuste Version mit ausführlicher Fehlerbehandlung und Logging
-"""
-
-import os
-import json
-import yaml
-import shutil
-import logging
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict
-from enum import Enum
-
-# Logging-Konfiguration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# ==================== ENHANCED PROJECT MANAGER ====================
 
 class WorkflowStep(Enum):
     """Workflow-Schritte mit Status-Tracking"""
@@ -1221,6 +1233,9 @@ class ProjectConfig:
     augmentation_settings: Dict = None
     training_settings: Dict = None
     
+    # Live Detection Settings (ENHANCED)
+    live_detection_settings: Dict = None
+    
     # Workflow-Status
     workflow_status: Dict[str, bool] = None
     
@@ -1236,16 +1251,64 @@ class ProjectConfig:
             self.augmentation_settings = {}
         if self.training_settings is None:
             self.training_settings = {}
+        if self.live_detection_settings is None:
+            self.live_detection_settings = self._get_default_live_detection_settings()
         if self.workflow_status is None:
             self.workflow_status = {step.value: False for step in WorkflowStep}
         if self.models is None:
             self.models = []
+    
+    def _get_default_live_detection_settings(self) -> Dict:
+        """Standard Live Detection Settings"""
+        return {
+            # Model und Dataset
+            'model_path': '',
+            'yaml_path': '',
+            
+            # Kamera-Einstellungen
+            'camera_type': 'usb',  # 'usb' oder 'ids_peak'
+            'camera_id': 0,
+            'exposure_time': 75000,
+            'fps': 15,
+            'quality': 70,
+            'flip_horizontal': False,
+            'flip_vertical': False,
+            
+            # Connection Settings
+            'connection': {
+                'ip': '',
+                'user': 'admin',
+                'password': 'admin'
+            },
+            
+            # Motion Detection
+            'motion_detection_enabled': True,
+            'motion_threshold': 110,
+            'static_frame_min': 3,
+            
+            # Object Detection
+            'detection_enabled': False,
+            'iou_threshold': 0.45,
+            'class_thresholds': {},
+            
+            # Frame Configuration
+            'frame_assignments': {},
+            'green_threshold': 4,
+            'red_threshold': 1,
+            
+            # Streaming Settings
+            'stream_type': 'stream1',
+            'auto_overlay': True,
+            'encoding_type': 'MJPEG',
+            'mjpeg_quality': 75,
+            'resolution': 'FULL_HD'
+        }
 
 class ProjectManager:
-    """Zentraler Projekt-Manager für alle AI Vision Tools"""
+    """Zentraler Projekt-Manager für alle AI Vision Tools - Enhanced Version"""
     
     def __init__(self, project_root: str):
-        logger.info(f"Initialisiere Projekt-Manager für: {project_root}")
+        logger.info(f"Initialisiere Enhanced Projekt-Manager für: {project_root}")
         
         try:
             self.project_root = Path(project_root).resolve()
@@ -1275,10 +1338,10 @@ class ProjectManager:
             # Konfiguration laden oder erstellen
             self.config: ProjectConfig = self._load_or_create_config()
             
-            logger.info(f"Projekt-Manager erfolgreich initialisiert: {self.config.project_name}")
+            logger.info(f"Enhanced Projekt-Manager erfolgreich initialisiert: {self.config.project_name}")
             
         except Exception as e:
-            logger.error(f"Fehler bei Projekt-Manager Initialisierung: {e}")
+            logger.error(f"Fehler bei Enhanced Projekt-Manager Initialisierung: {e}")
             raise
     
     def _ensure_project_directory(self):
@@ -1322,7 +1385,7 @@ class ProjectManager:
     
     def _load_or_create_config(self) -> ProjectConfig:
         """Lädt bestehende Config oder erstellt neue mit robuster Fehlerbehandlung"""
-        logger.info(f"Lade oder erstelle Konfiguration: {self.config_file}")
+        logger.info(f"Lade oder erstelle Enhanced Konfiguration: {self.config_file}")
         
         if self.config_file.exists():
             try:
@@ -1337,8 +1400,13 @@ class ProjectManager:
                         logger.warning(f"Feld '{field}' fehlt in Konfiguration - setze Standard")
                         data[field] = self._get_default_value(field)
                 
+                # Stelle sicher, dass live_detection_settings existiert
+                if 'live_detection_settings' not in data:
+                    logger.info("Live Detection Settings fehlen - erstelle Standard-Konfiguration")
+                    data['live_detection_settings'] = ProjectConfig()._get_default_live_detection_settings()
+                
                 config = ProjectConfig(**data)
-                logger.info(f"Konfiguration erfolgreich geladen: {config.project_name}")
+                logger.info(f"Enhanced Konfiguration erfolgreich geladen: {config.project_name}")
                 return config
                 
             except json.JSONDecodeError as e:
@@ -1364,6 +1432,7 @@ class ProjectManager:
             'camera_settings': {},
             'augmentation_settings': {},
             'training_settings': {},
+            'live_detection_settings': ProjectConfig()._get_default_live_detection_settings(),
             'workflow_status': {step.value: False for step in WorkflowStep},
             'models': [],
             'current_model': None
@@ -1371,8 +1440,8 @@ class ProjectManager:
         return defaults.get(field, {})
     
     def _create_new_config(self) -> ProjectConfig:
-        """Erstellt neue Projekt-Konfiguration"""
-        logger.info("Erstelle neue Projekt-Konfiguration...")
+        """Erstellt neue Enhanced Projekt-Konfiguration"""
+        logger.info("Erstelle neue Enhanced Projekt-Konfiguration...")
         
         config = ProjectConfig(
             project_name=self.project_root.name,
@@ -1383,6 +1452,7 @@ class ProjectManager:
             camera_settings={},
             augmentation_settings={},
             training_settings={},
+            live_detection_settings=ProjectConfig()._get_default_live_detection_settings(),
             workflow_status={step.value: False for step in WorkflowStep},
             models=[],
             current_model=None
@@ -1393,7 +1463,7 @@ class ProjectManager:
         return config
     
     def save_config(self, config: Optional[ProjectConfig] = None):
-        """Speichert Projekt-Konfiguration mit robuster Fehlerbehandlung"""
+        """Speichert Enhanced Projekt-Konfiguration mit robuster Fehlerbehandlung"""
         if config:
             self.config = config
         
@@ -1415,7 +1485,7 @@ class ProjectManager:
             # Atomares Umbenennen (verhindert korrupte Dateien)
             temp_file.replace(self.config_file)
             
-            logger.debug(f"Konfiguration erfolgreich gespeichert: {self.config_file}")
+            logger.debug(f"Enhanced Konfiguration erfolgreich gespeichert: {self.config_file}")
             
         except PermissionError as e:
             logger.error(f"Keine Berechtigung zum Speichern der Konfiguration: {e}")
@@ -1589,6 +1659,10 @@ class ProjectManager:
             
             self.config.models.append(model_info)
             self.config.current_model = timestamp  # Neues Modell wird automatisch aktiv
+            
+            # Automatisch Live Detection Settings aktualisieren
+            self.config.live_detection_settings['model_path'] = str(target_path)
+            
             self.save_config()
             
             logger.info(f"Neues Modell registriert: {timestamp} (Accuracy: {accuracy})")
@@ -1601,8 +1675,11 @@ class ProjectManager:
     def set_active_model(self, timestamp: str) -> bool:
         """Setzt aktives Modell"""
         try:
-            if any(m['timestamp'] == timestamp for m in self.config.models):
+            model_info = next((m for m in self.config.models if m['timestamp'] == timestamp), None)
+            if model_info:
                 self.config.current_model = timestamp
+                # Live Detection Settings aktualisieren
+                self.config.live_detection_settings['model_path'] = model_info['path']
                 self.save_config()
                 logger.info(f"Aktives Modell gesetzt: {timestamp}")
                 return True
@@ -1640,9 +1717,11 @@ class ProjectManager:
                 if self.config.models:
                     latest = max(self.config.models, key=lambda x: x['timestamp'])
                     self.config.current_model = latest['timestamp']
+                    self.config.live_detection_settings['model_path'] = latest['path']
                     logger.info(f"Neues aktives Modell: {latest['timestamp']}")
                 else:
                     self.config.current_model = None
+                    self.config.live_detection_settings['model_path'] = ''
                     logger.info("Kein aktives Modell mehr vorhanden")
             
             self.save_config()
@@ -1769,7 +1848,7 @@ class ProjectManager:
         except Exception as e:
             return False, f"Fehler beim Prüfen des trainierten Modells: {str(e)}"
     
-    # ==================== SETTINGS-MANAGEMENT ====================
+    # ==================== SETTINGS-MANAGEMENT - ENHANCED ====================
     
     def update_camera_settings(self, settings: Dict):
         """Aktualisiert Kamera-Einstellungen"""
@@ -1798,6 +1877,15 @@ class ProjectManager:
         except Exception as e:
             logger.error(f"Fehler beim Aktualisieren der Training-Einstellungen: {e}")
     
+    def update_live_detection_settings(self, settings: Dict):
+        """Aktualisiert Live Detection Einstellungen - ENHANCED"""
+        try:
+            self.config.live_detection_settings.update(settings)
+            self.save_config()
+            logger.debug("Live Detection Einstellungen aktualisiert")
+        except Exception as e:
+            logger.error(f"Fehler beim Aktualisieren der Live Detection Einstellungen: {e}")
+    
     def get_camera_settings(self) -> Dict:
         """Gibt Kamera-Einstellungen zurück"""
         return self.config.camera_settings.copy()
@@ -1809,6 +1897,57 @@ class ProjectManager:
     def get_training_settings(self) -> Dict:
         """Gibt Training-Einstellungen zurück"""
         return self.config.training_settings.copy()
+    
+    def get_live_detection_settings(self) -> Dict:
+        """Gibt Live Detection Einstellungen zurück - ENHANCED"""
+        return self.config.live_detection_settings.copy()
+    
+    # ==================== SPECIFIC LIVE DETECTION METHODS ====================
+    
+    def set_model_path(self, model_path: str):
+        """Setzt Modell-Pfad für Live Detection"""
+        self.config.live_detection_settings['model_path'] = model_path
+        self.save_config()
+    
+    def set_yaml_path(self, yaml_path: str):
+        """Setzt YAML-Pfad für Live Detection"""
+        self.config.live_detection_settings['yaml_path'] = yaml_path
+        self.save_config()
+    
+    def set_motion_detection_enabled(self, enabled: bool):
+        """Aktiviert/Deaktiviert Motion Detection"""
+        self.config.live_detection_settings['motion_detection_enabled'] = enabled
+        self.save_config()
+        logger.info(f"Motion Detection {'aktiviert' if enabled else 'deaktiviert'}")
+    
+    def set_detection_enabled(self, enabled: bool):
+        """Aktiviert/Deaktiviert Objekterkennung"""
+        self.config.live_detection_settings['detection_enabled'] = enabled
+        self.save_config()
+        logger.info(f"Objekterkennung {'aktiviert' if enabled else 'deaktiviert'}")
+    
+    def set_class_threshold(self, class_id: int, threshold: float):
+        """Setzt Threshold für spezifische Klasse"""
+        self.config.live_detection_settings['class_thresholds'][str(class_id)] = threshold
+        self.save_config()
+    
+    def set_camera_connection(self, ip: str, user: str, password: str):
+        """Setzt Kamera-Verbindungsparameter"""
+        self.config.live_detection_settings['connection'].update({
+            'ip': ip,
+            'user': user,
+            'password': password
+        })
+        self.save_config()
+    
+    def set_streaming_parameters(self, fps: int, quality: int, stream_type: str):
+        """Setzt Streaming-Parameter"""
+        self.config.live_detection_settings.update({
+            'fps': fps,
+            'quality': quality,
+            'stream_type': stream_type
+        })
+        self.save_config()
     
     # ==================== CONTINUAL LEARNING ====================
     
@@ -1851,4 +1990,24 @@ class ProjectManager:
             logger.error(f"Fehler bei Continual Learning Vorbereitung: {e}")
             return False, f"Fehler: {str(e)}", {}
 
-    pass
+
+if __name__ == "__main__":
+    # Test-Code für direktes Ausführen
+    print("🧪 Teste Enhanced Projekt-Manager...")
+    
+    try:
+        from PyQt6.QtWidgets import QApplication
+        import sys
+        
+        app = QApplication(sys.argv)
+        
+        # Test Enhanced Projekt-Manager Dialog
+        dialog = ProjectManagerDialog()
+        dialog.show()
+        
+        sys.exit(app.exec())
+        
+    except Exception as e:
+        print(f"❌ Test fehlgeschlagen: {e}")
+        import traceback
+        traceback.print_exc()

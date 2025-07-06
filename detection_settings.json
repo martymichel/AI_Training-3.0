@@ -1,13 +1,9 @@
 {
-    "motion_threshold": 230,
-    "static_frame_min": 10,
-    "iou_threshold": 0.77,
+    "model_path": "C:/Users/Michel/AI_Vision_Projects/ijlkjd_2/05_models/best_20250705_183908.pt",
+    "yaml_path": "C:/Users/Michel/AI_Vision_Projects/ijlkjd_2/04_splitted/data.yaml",
+    "motion_threshold": 200,
+    "iou_threshold": 0.8891647855530475,
     "class_thresholds": {
-        "0": 0.01
-    },
-    "frame_assignments": {
-        "0": "Green Frame"
-    },
-    "green_threshold": 1,
-    "red_threshold": 1
+        "0": 0.20625
+    }
 }

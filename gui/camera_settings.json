@@ -1,0 +1,26 @@
+{
+    "connection": {
+        "ip": "",
+        "user": "",
+        "password": ""
+    },
+    "streaming": {
+        "stream_type": "",
+        "fps": 0,
+        "quality": 0
+    },
+    "camera": {
+        "exposure_time": 0,
+        "gain": 0.0,
+        "flip_horizontal": false,
+        "flip_vertical": false
+    },
+    "detection": {
+        "model_path": "",
+        "yaml_path": "",
+        "motion_threshold": 110,
+        "iou_threshold": 0.45,
+        "class_thresholds": {},
+        "enabled": false
+    }
+}

@@ -1124,7 +1124,7 @@ def main():
     
     app.setApplicationName("YOLO Quality Checker")
     app.setApplicationVersion("5.0 Lightning Fast")
-    app.setOrganizationName("AI Tools")
+    app.setOrganizationName("Michel Marty")
     
     window = FastYOLOChecker()
     window.show()
