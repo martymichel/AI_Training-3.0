@@ -1270,6 +1270,7 @@ class ProjectConfig:
             'camera_type': 'usb',  # 'usb' oder 'ids_peak'
             'camera_id': 0,
             'exposure_time': 75000,
+            'gain': 0.0,            
             'fps': 15,
             'quality': 70,
             'flip_horizontal': False,

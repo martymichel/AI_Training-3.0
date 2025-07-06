@@ -25,11 +25,14 @@ from .src.nxt_rest_connection import NXTRestConnection
 from .src.nxt_camera_handler_base import NXTCameraHandlerBase
 from .src.nxt_streaming_handler import NXTStreamingHandler
 from .src.nxt_config import NXTConfig
+from project_manager import ProjectManager
 
 class IDSNXTCameraApp:
     def __init__(self, root, settings_dir="."):
         self.root = root
         self.settings_dir = Path(settings_dir)
+        # Project specific manager for persistent settings
+        self.project_manager = ProjectManager(settings_dir)
         self.root = root
         self.root.title("IDS NXT Kamera Live-Streaming")
         # Windows Fenster maximieren
@@ -90,86 +93,48 @@ class IDSNXTCameraApp:
             self.auto_connect()
     
     def load_all_settings(self):
-        """Lädt alle Einstellungen aus der JSON-Datei"""
+        """Lädt Einstellungen aus Datei und Projekt-Manager"""
         try:
+            settings = {}
             if self.settings_file.exists():
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
-                    
-                # Validate and merge with defaults
-                default_settings = {
-                    "connection": {
-                        "ip": "",
-                        "user": "admin",
-                        "password": "admin"
-                    },
-                    "streaming": {
-                        "stream_type": "stream1",
-                        "fps": 15,
-                        "quality": 70
-                    },
-                    "camera": {
-                        "exposure_time": 10000,
-                        "gain": 0.0,
-                        "flip_horizontal": False,
-                        "flip_vertical": False
-                    },
-                    "detection": {
-                        "model_path": "",
-                        "yaml_path": "",
-                        "motion_threshold": 110,
-                        "iou_threshold": 0.45,
-                        "class_thresholds": {},
-                        "enabled": False
-                    }
-                }
-                
-                # Merge settings with defaults
-                for section, values in default_settings.items():
-                    if section not in settings:
-                        settings[section] = {}
-                    for key, default_value in values.items():
-                        if key not in settings[section]:
-                            settings[section][key] = default_value
-                
-                return settings
-            else:
-                # Return default settings if file doesn't exist
-                return {
-                    "connection": {
-                        "ip": "",
-                        "user": "admin", 
-                        "password": "admin"
-                    },
-                    "streaming": {
-                        "stream_type": "stream1",
-                        "fps": 15,
-                        "quality": 70
-                    },
-                    "camera": {
-                        "exposure_time": 10000,
-                        "gain": 0.0,
-                        "flip_horizontal": False,
-                        "flip_vertical": False
-                    },
-                    "detection": {
-                        "model_path": "",
-                        "yaml_path": "",
-                        "motion_threshold": 110,
-                        "iou_threshold": 0.45,
-                        "class_thresholds": {},
-                        "enabled": False
-                    }
-                }
-        except Exception as e:
-            print(f"Fehler beim Laden der Einstellungen: {e}")
-            # Return minimal default settings on error
-            return {
+
+            default_settings = {
                 "connection": {"ip": "", "user": "admin", "password": "admin"},
                 "streaming": {"stream_type": "stream1", "fps": 15, "quality": 70},
                 "camera": {"exposure_time": 10000, "gain": 0.0, "flip_horizontal": False, "flip_vertical": False},
-                "detection": {"model_path": "", "yaml_path": "", "motion_threshold": 110, "iou_threshold": 0.45, "class_thresholds": {}, "enabled": False}
+                "detection": {"model_path": "", "yaml_path": "", "motion_threshold": 110, "iou_threshold": 0.45, "class_thresholds": {}, "enabled": False},
             }
+
+            for section, values in default_settings.items():
+                if section not in settings:
+                    settings[section] = {}
+                for key, val in values.items():
+                    settings[section].setdefault(key, val)
+
+            pm_cam = self.project_manager.get_camera_settings()
+            for key, val in pm_cam.items():
+                settings["camera"][key] = val
+
+            pm_live = self.project_manager.get_live_detection_settings()
+            settings["connection"].update(pm_live.get("connection", {}))
+            for k in ["stream_type", "fps", "quality"]:
+                if k in pm_live:
+                    settings["streaming"][k] = pm_live[k]
+            for k in ["exposure_time", "gain", "flip_horizontal", "flip_vertical"]:
+                if k in pm_live:
+                    settings["camera"][k] = pm_live[k]
+            for k in ["model_path", "yaml_path", "motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
+                if k in pm_live:
+                    target_key = "enabled" if k in ["detection_enabled", "enabled"] else k
+                    settings["detection"][target_key] = pm_live[k]
+
+            return settings
+
+        except Exception as e:
+            print(f"Fehler beim Laden der Einstellungen: {e}")
+            return default_settings
     
     def save_all_settings(self):
         """Speichert alle aktuellen Einstellungen in JSON-Datei"""
@@ -187,9 +152,23 @@ class IDSNXTCameraApp:
             self.settings['camera']['gain'] = self.gain_var.get()
             self.settings['camera']['flip_horizontal'] = self.flip_h_var.get()
             self.settings['camera']['flip_vertical'] = self.flip_v_var.get()
-            
+
             # Detection settings are updated by their respective methods
-            
+
+            live_settings = {
+                'connection': self.settings['connection'],
+                'stream_type': self.settings['streaming']['stream_type'],
+                'fps': self.settings['streaming']['fps'],
+                'quality': self.settings['streaming']['quality'],
+                'exposure_time': self.settings['camera']['exposure_time'],
+                'gain': self.settings['camera']['gain'],
+                'flip_horizontal': self.settings['camera']['flip_horizontal'],
+                'flip_vertical': self.settings['camera']['flip_vertical'],
+            }
+
+            self.project_manager.update_camera_settings(self.settings['camera'])
+            self.project_manager.update_live_detection_settings(live_settings)
+
             # Write to file
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
@@ -375,10 +354,10 @@ class IDSNXTCameraApp:
         video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
         # Video-Label (für Bildanzeige)
-        self.video_label = ttk.Label(video_frame, text="Kein Bild verfügbar", 
+        self.video_label = ttk.Label(video_frame, text="Kein Bild verfügbar",
                                     anchor="center", background="black", foreground="white")
         self.video_label.pack(expand=True, fill="both")
-        
+
         # Kamera-Steuerung-Frame
         control_frame = ttk.LabelFrame(streaming_tab, text="Kamera-Steuerung", padding="5")
         control_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -553,7 +532,7 @@ class IDSNXTCameraApp:
         control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
         # Detection Ein/Aus
-        self.detection_var = tk.BooleanVar()
+        self.detection_var = tk.BooleanVar(value=self.detection_settings.get('enabled', False))
         detection_check = ttk.Checkbutton(control_frame, text="Objekterkennung aktivieren", 
                                          variable=self.detection_var, command=self.toggle_detection)
         detection_check.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
@@ -561,20 +540,22 @@ class IDSNXTCameraApp:
         # Motion Threshold
         ttk.Label(control_frame, text="Motion Threshold:").grid(row=1, column=0, sticky=tk.W, pady=(0, 5))
         self.motion_var = tk.IntVar(value=self.detection_settings.get('motion_threshold', 110))
-        motion_scale = ttk.Scale(control_frame, from_=50, to=200, variable=self.motion_var, 
+        motion_scale = ttk.Scale(control_frame, from_=50, to=200, variable=self.motion_var,
                                 orient="horizontal", length=200, command=self.update_motion_threshold)
         motion_scale.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.motion_label = ttk.Label(control_frame, text=f"Wert: {self.motion_var.get()}")
         self.motion_label.grid(row=3, column=0, pady=(0, 10))
+        self.motion_var.trace('w', lambda *args: self.save_detection_settings(False))
         
         # IoU Threshold
         ttk.Label(control_frame, text="IoU Threshold:").grid(row=4, column=0, sticky=tk.W, pady=(0, 5))
         self.iou_var = tk.DoubleVar(value=self.detection_settings.get('iou_threshold', 0.45))
-        iou_scale = ttk.Scale(control_frame, from_=0.1, to=0.9, variable=self.iou_var, 
+        iou_scale = ttk.Scale(control_frame, from_=0.1, to=0.9, variable=self.iou_var,
                              orient="horizontal", length=200, command=self.update_iou_threshold)
         iou_scale.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
         self.iou_label = ttk.Label(control_frame, text=f"Wert: {self.iou_var.get():.2f}")
         self.iou_label.grid(row=6, column=0, pady=(0, 10))
+        self.iou_var.trace('w', lambda *args: self.save_detection_settings(False))
         
         # Einstellungen speichern/laden
         settings_btn_frame = ttk.Frame(control_frame)
@@ -894,7 +875,7 @@ class IDSNXTCameraApp:
                     
                     # Bild verarbeiten und anzeigen
                     image = Image.open(io.BytesIO(image_data))
-                    image = image.resize((640, 480), Image.Resampling.LANCZOS)
+                    image = self.resize_image_to_label(image)
                     photo = ImageTk.PhotoImage(image)
                     
                     # GUI-Update im Hauptthread
@@ -970,9 +951,8 @@ class IDSNXTCameraApp:
                             # Zurück zu PIL konvertieren
                             image = Image.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
                         
-                        # Intelligente Skalierung (nur wenn nötig)
-                        if image.size != (640, 480):
-                            image = image.resize((640, 480), Image.Resampling.LANCZOS)
+                        # Intelligente Skalierung abhängig von Label-Größe
+                        image = self.resize_image_to_label(image)
                         
                         photo = ImageTk.PhotoImage(image)
                         
@@ -1043,6 +1023,26 @@ class IDSNXTCameraApp:
         """Video-Display aktualisieren"""
         self.video_label.configure(image=photo, text="")
         self.video_label.image = photo  # Referenz behalten
+
+    def resize_image_to_label(self, image):
+        """Skaliert ein PIL-Image auf die Größe des Video-Labels und bewahrt das Seitenverhältnis"""
+        label_w = self.video_label.winfo_width()
+        label_h = self.video_label.winfo_height()
+        if label_w <= 1 or label_h <= 1:
+            label_w, label_h = 640, 480
+
+        img_w, img_h = image.size
+        img_ratio = img_w / img_h
+        label_ratio = label_w / label_h
+
+        if label_ratio > img_ratio:
+            new_h = label_h
+            new_w = int(new_h * img_ratio)
+        else:
+            new_w = label_w
+            new_h = int(new_w / img_ratio)
+
+        return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
     
     def handle_stream_error(self, error_msg):
         """Stream-Fehler behandeln"""
@@ -1483,6 +1483,7 @@ class IDSNXTCameraApp:
             saved_threshold = self.detection_settings.get('class_thresholds', {}).get(str(class_id), 0.7)
             threshold_var = tk.DoubleVar(value=saved_threshold)
             self.class_threshold_vars[class_id] = threshold_var
+            threshold_var.trace('w', lambda *args: self.save_detection_settings(False))
             
             # Scale
             scale = ttk.Scale(class_frame, from_=0.1, to=0.95, variable=threshold_var,
@@ -1556,8 +1557,11 @@ class IDSNXTCameraApp:
             self.yolo_model = None
             self.detection_status_label.configure(text="Status: Inaktiv", foreground="red")
             print("❌ Objekterkennung deaktiviert")
+
+        # Persist state
+        self.save_detection_settings()
     
-    def save_detection_settings(self):
+    def save_detection_settings(self, show_message: bool = True):
         """Speichert aktuelle Detection-Einstellungen"""
         try:
             settings = {
@@ -1565,7 +1569,8 @@ class IDSNXTCameraApp:
                 'yaml_path': self.yaml_path_var.get(),
                 'motion_threshold': self.motion_var.get(),
                 'iou_threshold': self.iou_var.get(),
-                'class_thresholds': {}
+                'class_thresholds': {},
+                'detection_enabled': self.detection_var.get()
             }
             
             # Klassen-Thresholds speichern
@@ -1574,30 +1579,45 @@ class IDSNXTCameraApp:
             
             with open(self.detection_settings_file, 'w') as f:
                 json.dump(settings, f, indent=4)
-            
-            messagebox.showinfo("Erfolg", "Einstellungen gespeichert!")
-            print(f"✅ Detection-Einstellungen gespeichert: {self.detection_settings_file}")
+
+            self.project_manager.update_live_detection_settings(settings)
+
+            if show_message:
+                messagebox.showinfo("Erfolg", "Einstellungen gespeichert!")
+                print(f"✅ Detection-Einstellungen gespeichert: {self.detection_settings_file}")
             
         except Exception as e:
             messagebox.showerror("Fehler", f"Fehler beim Speichern: {e}")
-    
+
     def load_detection_settings(self):
         """Lädt Detection-Einstellungen aus Datei"""
         try:
+            settings = {}
             if Path(self.detection_settings_file).exists():
                 with open(self.detection_settings_file, 'r') as f:
                     settings = json.load(f)
-                print(f"✅ Detection-Einstellungen geladen: {self.detection_settings_file}")
-                return settings
+
+            pm_live = self.project_manager.get_live_detection_settings()
+            for key in ["model_path", "yaml_path", "motion_threshold", "iou_threshold", "class_thresholds", "detection_enabled", "enabled"]:
+                if key in pm_live:
+                    target_key = "enabled" if key in ["detection_enabled", "enabled"] else key
+                    settings[target_key] = pm_live[key]
+
+            print(f"✅ Detection-Einstellungen geladen: {self.detection_settings_file}")
+            return settings
+
         except Exception as e:
             print(f"⚠️ Fehler beim Laden der Detection-Einstellungen: {e}")
-        
-        return {}
+            return {}
     
     def load_detection_settings_manual(self):
         """Lädt gespeicherte Einstellungen manuell"""
         self.detection_settings = self.load_detection_settings()
+        self.project_manager.update_live_detection_settings(self.detection_settings)
         self.load_saved_paths()
+
+        if hasattr(self, 'detection_var'):
+            self.detection_var.set(self.detection_settings.get('enabled', False))
         
         # Threshold-Werte aktualisieren
         if hasattr(self, 'motion_var'):
