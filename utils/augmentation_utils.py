@@ -147,14 +147,18 @@ def augment_image_with_boxes(image, boxes, method, level1, level2, min_visibilit
             ))
             
         elif method == "Zoom" or method == "Scale":
-            # Random scale between level1 and level2
-            scale_factor = np.random.uniform(level1, level2)
+            # Convert percentage levels to scale factor and keep values reasonable
+            scale_percent = np.random.uniform(level1, level2)
+            scale_factor = 1.0 + scale_percent / 100.0
+            # Clamp extreme values to avoid huge images that cause OOM errors
+            scale_factor = max(0.1, min(scale_factor, 3.0))
             transforms.append(RandomScale(
-                scale_limit=(scale_factor-1, scale_factor-1), 
+                scale_limit=(scale_factor - 1, scale_factor - 1),
                 p=1.0,
                 interpolation=cv2.INTER_LINEAR,
                 border_mode=cv2.BORDER_REFLECT_101
             ))
+            
             
         elif method == "HorizontalFlip":
             transforms.append(HorizontalFlip(p=1.0))

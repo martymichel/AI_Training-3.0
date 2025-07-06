@@ -1228,7 +1228,12 @@ class IDSNXTCameraApp:
         if self.monitor_active:
             self.stop_monitoring()
         try:
-            subprocess.Popen([sys.executable, "-m", "gui.image_labeling"])
+            subprocess.Popen([
+                sys.executable,
+                "-m",
+                "gui.image_labeling",
+                str(self.settings_dir),
+            ])
         except Exception as e:
             messagebox.showerror("Fehler", f"Labeling-App konnte nicht gestartet werden: {e}")
         self.root.destroy()

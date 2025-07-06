@@ -440,6 +440,16 @@ class ImageLabelingApp(QMainWindow):
             self.dest_dir = directory
             self.lbl_dest_dir.setText(f"Zielverzeichnis: {directory}")
 
+    def load_paths_from_project(self):
+        """Load source and destination directories from the project manager."""
+        if hasattr(self, "project_manager") and self.project_manager:
+            self.source_dir = str(self.project_manager.get_raw_images_dir())
+            self.dest_dir = str(self.project_manager.get_labeled_dir())
+            self.lbl_source_dir.setText(f"Quellverzeichnis: {self.source_dir}")
+            self.lbl_dest_dir.setText(f"Zielverzeichnis: {self.dest_dir}")
+            if os.path.isdir(self.source_dir):
+                self.load_images()         
+
     def load_images(self):
         exts = (".jpg", ".jpeg", ".png", ".bmp")
         self.image_files = [os.path.join(self.source_dir, f) for f in os.listdir(self.source_dir)
@@ -706,6 +716,7 @@ class ImageLabelingApp(QMainWindow):
                 app.update_expected_count()
                 load_sample_image(app)
 
+            self.augmentation_window = app
             app.show()
             self.close()
         except Exception as e:
@@ -755,7 +766,21 @@ class ImageLabelingAppExtensions:
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Image Labeling App")
+    parser.add_argument("project_dir", nargs="?", help="Projektverzeichnis")
+    args, qt_args = parser.parse_known_args()
+
+    app = QApplication(sys.argv[:1] + qt_args)
     window = ImageLabelingApp()
+
+    if args.project_dir:
+        from project_manager import ProjectManager
+
+        window.project_manager = ProjectManager(args.project_dir)
+        window.load_paths_from_project()
+        window.load_classes_from_project()
+
     window.show()  # Window will be maximized due to WindowState setting
     sys.exit(app.exec())

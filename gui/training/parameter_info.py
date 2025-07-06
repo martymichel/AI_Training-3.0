@@ -1,8 +1,7 @@
 """Parameter information buttons for the training settings."""
 
-from PyQt6.QtWidgets import QToolButton, QMessageBox
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QIcon, QFont, QColor
+from PyQt6.QtWidgets import QToolButton, QMessageBox, QLabel
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 
 class ParameterInfoButton(QToolButton):
@@ -39,38 +38,18 @@ class ParameterInfoButton(QToolButton):
 
     def show_info(self):
         """Show information dialog."""
-        # Create a message box with improved layout
+        # Mimic the style of dashboard help dialogs for consistent layout
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Parameter Information")
-        msg_box.setText(self.info_text)
         msg_box.setIcon(QMessageBox.Icon.Information)
-        
-        # Style the message box
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: #FFFFFF;
-            }
-            QMessageBox QLabel {
-                color: #333333;
-                font-size: 12px;
-                min-width: 800px;  /* Make this much wider */
-            }
-            QPushButton {
-                background-color: #1976D2;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1565C0;
-            }
-        """)
-        
-        # Fix layout to give more space to text and less to icon
-        # Set the total width of the dialog
-        msg_box.setMinimumWidth(900)
-        
-        # Execute the dialog
-        msg_box.exec()
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
+
+        # Convert plain newlines to paragraphs for better readability
+        paragraphs = [p.strip() for p in self.info_text.split("\n") if p.strip()]
+        formatted = "<br><br>".join(paragraphs)
+        msg_box.setText(formatted)
+
+        # Ensure the label within the message box wraps the text
+        label = msg_box.findChild(QLabel, "qt_msgbox_label")
+        if label is not None:
+            label.setWordWrap(True)

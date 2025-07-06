@@ -126,8 +126,13 @@ class ModernCard(QFrame):
         if os.path.exists(icon_path):
             print(f"DEBUG: Icon gefunden: {icon_path}")
             pixmap = QPixmap(icon_path)
-            
+
             if not pixmap.isNull():
+                # Farben invertieren, damit das Icon auf dunklem Hintergrund sichtbar ist
+                img = pixmap.toImage()
+                img.invertPixels()
+                pixmap = QPixmap.fromImage(img)
+
                 # Icon skalieren auf 50x50 Pixel
                 scaled_pixmap = pixmap.scaled(
                     50, 50,
@@ -170,26 +175,26 @@ class ModernCard(QFrame):
             background: transparent;
             border: none;
             font-size: 32px;
-            color: #6c757d;
+            color: #9ca3af;
         """)
     
     def set_style(self):
         """Setzt das Styling basierend auf dem Status"""
         if self.status == "ready":
-            bg_color = "#ffffff"
+            bg_color = "#1f2937"
             border_color = "#22c55e"
             status_color = "#22c55e"
-            text_color = "#111827"
+            text_color = "#f9fafb"
         elif self.status == "completed":
-            bg_color = "#ffffff" 
+            bg_color = "#1f2937"
             border_color = "#3b82f6"
             status_color = "#3b82f6"
-            text_color = "#111827"
+            text_color = "#f9fafb"
         else:  # disabled
-            bg_color = "#f9fafb"
-            border_color = "#e5e7eb"
-            status_color = "#d1d5db"
-            text_color = "#6b7280"
+            bg_color = "#111827"
+            border_color = "#374151"
+            status_color = "#374151"
+            text_color = "#9ca3af"
         
         self.setStyleSheet(f"""
             ModernCard {{
@@ -290,7 +295,7 @@ class WorkflowSection(QFrame):
         desc_font = QFont()
         desc_font.setPointSize(12)
         desc_label.setFont(desc_font)
-        desc_label.setStyleSheet("color: #6b7280;")
+        desc_label.setStyleSheet("color: #9ca3af;")
         
         header_layout.addWidget(title_label)
         header_layout.addWidget(desc_label)
@@ -308,14 +313,14 @@ class WorkflowSection(QFrame):
         # Styling
         self.setStyleSheet("""
             WorkflowSection {
-                background-color: white;
+                background-color: #1f2937;
                 border-radius: 16px;
-                border: 1px solid #e5e7eb;
+                border: 1px solid #374151;
             }
             QLabel {
                 background: transparent;
                 border: none;
-                color: #111827;
+                color: #f3f4f6;
             }
         """)
         
@@ -381,36 +386,36 @@ class MainMenu(QMainWindow):
         # Hauptstil
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #15264a;
+                background-color: #111827;
             }
             QMenuBar {
-                background-color: black;
-                border-bottom: 1px solid #041b4a;
+                background-color: #1f2937;
+                border-bottom: 1px solid #374151;
                 padding: 8px 0;
                 font-size: 13px;
             }
             QMenuBar::item {
                 padding: 8px 16px;
-                color: #374151;
+                color: #d1d5db;
                 font-weight: 500;
             }
             QMenuBar::item:selected {
-                background-color: #15264a;
-                color: #111827;
+                background-color: #374151;
+                color: #f9fafb;
             }
             QMenu {
-                background-color: black;
-                border: 1px solid #041b4a;
+                background-color: #1f2937;
+                border: 1px solid #374151;
                 border-radius: 8px;
                 padding: 8px 0;
             }
             QMenu::item {
                 padding: 8px 16px;
-                color: #374151;
+                color: #d1d5db;
             }
             QMenu::item:selected {
-                background-color: #15264a;
-                color: #111827;
+                background-color: #374151;
+                color: #f9fafb;
             }
             QScrollArea {
                 border: none;
@@ -418,12 +423,12 @@ class MainMenu(QMainWindow):
             }
             QScrollBar:vertical {
                 border: none;
-                background: #15264a;
+                background: #374151;
                 width: 8px;
                 border-radius: 4px;
             }
             QScrollBar::handle:vertical {
-                background: #d1d5db;
+                background: #6b7280;
                 border-radius: 4px;
                 min-height: 20px;
             }
@@ -557,16 +562,16 @@ class MainMenu(QMainWindow):
         # Styling
         header_widget.setStyleSheet("""
             QWidget {
-                background-color: white;
-                border-bottom: 1px solid #041b4a;
+                background-color: #1f2937;
+                border-bottom: 1px solid #374151;
             }
             QLabel {
-                color: #111827;
+                color: #f9fafb;
                 background: transparent;
                 border: none;
             }
             QLabel:last-child {
-                color: #6b7280;
+                color: #9ca3af;
             }
         """)
         
@@ -728,11 +733,11 @@ class MainMenu(QMainWindow):
         
         footer_widget.setStyleSheet("""
             QWidget {
-                background-color: white;
-                border-top: 1px solid #e5e7eb;
+                background-color: #1f2937;
+                border-top: 1px solid #374151;
             }
             QLabel {
-                color: #6b7280;
+                color: #9ca3af;
                 background: transparent;
                 border: none;
             }
@@ -784,13 +789,8 @@ class MainMenu(QMainWindow):
             from gui.image_labeling import ImageLabelingApp
             app = ImageLabelingApp()
             app.project_manager = self.project_manager
-            app.source_dir = str(self.project_manager.get_raw_images_dir())
-            app.dest_dir = str(self.project_manager.get_labeled_dir())
-            
-            # UI Labels aktualisieren
-            app.lbl_source_dir.setText(f"Quellverzeichnis: {app.source_dir}")
-            app.lbl_dest_dir.setText(f"Zielverzeichnis: {app.dest_dir}")
-            
+            app.load_paths_from_project()
+
             # Klassen aus Projekt laden
             classes = self.project_manager.get_classes()
             colors = self.project_manager.get_class_colors()
@@ -803,7 +803,6 @@ class MainMenu(QMainWindow):
                 app.classes.append((class_name, QColor(color)))
             
             app.update_class_list()
-            app.load_images()
             
             self.windows['labeling'] = app
         
