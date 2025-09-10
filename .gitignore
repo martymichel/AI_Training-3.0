@@ -14,3 +14,4 @@ wheels/
 *.toml
 *.toml
 nxt-python-api
+.env
