@@ -13,7 +13,8 @@
         "exposure_time": 0,
         "gain": 0.0,
         "flip_horizontal": false,
-        "flip_vertical": false
+        "flip_vertical": false,
+        "rotation": 0
     },
     "detection": {
         "model_path": "",

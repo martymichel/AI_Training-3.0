@@ -93,6 +93,10 @@ class IDSNXTCameraApp:
         # Automatische Verbindung wenn Daten vorhanden
         if self.settings.get('connection', {}).get('ip'):
             self.auto_connect()
+        
+        # Zusätzliche Variablen für Rotation und Vollbild
+        self.rotation_var = tk.IntVar()
+        self.is_fullscreen = False
     
     def load_all_settings(self):
         """Lädt Einstellungen aus Datei und Projekt-Manager"""
@@ -105,7 +109,13 @@ class IDSNXTCameraApp:
             default_settings = {
                 "connection": {"ip": "192.168.1.99", "user": "admin", "password": "Flex"},
                 "streaming": {"stream_type": "stream1", "fps": 15, "quality": 70},
-                "camera": {"exposure_time": 10000, "gain": 0.0, "flip_horizontal": False, "flip_vertical": False},
+                "camera": {
+                    "exposure_time": 10000,
+                    "gain": 0.0,
+                    "flip_horizontal": False,
+                    "flip_vertical": False,
+                    "rotation": 0
+                },
                 "detection": {"model_path": "", "yaml_path": "", "motion_threshold": 110, "iou_threshold": 0.45, "class_thresholds": {}, "enabled": False},
             }
 
@@ -124,7 +134,7 @@ class IDSNXTCameraApp:
             for k in ["stream_type", "fps", "quality"]:
                 if k in pm_live:
                     settings["streaming"][k] = pm_live[k]
-            for k in ["exposure_time", "gain", "flip_horizontal", "flip_vertical"]:
+            for k in ["exposure_time", "gain", "flip_horizontal", "flip_vertical", "rotation"]:
                 if k in pm_live:
                     settings["camera"][k] = pm_live[k]
 
@@ -159,6 +169,7 @@ class IDSNXTCameraApp:
             self.settings['camera']['gain'] = self.gain_var.get()
             self.settings['camera']['flip_horizontal'] = self.flip_h_var.get()
             self.settings['camera']['flip_vertical'] = self.flip_v_var.get()
+            self.settings['camera']['rotation'] = self.rotation_var.get()
 
             # Detection settings are updated by their respective methods
 
@@ -171,6 +182,7 @@ class IDSNXTCameraApp:
                 'gain': self.settings['camera']['gain'],
                 'flip_horizontal': self.settings['camera']['flip_horizontal'],
                 'flip_vertical': self.settings['camera']['flip_vertical'],
+                'rotation': self.settings['camera']['rotation'],
             }
 
             self.project_manager.update_camera_settings(self.settings['camera'])
@@ -204,6 +216,7 @@ class IDSNXTCameraApp:
             self.gain_var.set(camera.get('gain', 0.0))
             self.flip_h_var.set(camera.get('flip_horizontal', False))
             self.flip_v_var.set(camera.get('flip_vertical', False))
+            self.rotation_var.set(camera.get('rotation', 0))
             
             # Update labels
             self.fps_label.configure(text=f"{self.fps_var.get()} FPS")
@@ -234,6 +247,7 @@ class IDSNXTCameraApp:
             self.gain_var.trace_add('write', lambda *args: self.save_all_settings())
             self.flip_h_var.trace_add('write', lambda *args: self.save_all_settings())
             self.flip_v_var.trace_add('write', lambda *args: self.save_all_settings())
+            self.rotation_var.trace_add('write', lambda *args: self.save_all_settings())
             
         except Exception as e:
             print(f"Fehler beim Setup des Auto-Save: {e}")
@@ -327,7 +341,7 @@ class IDSNXTCameraApp:
         # Qualitäts-Einstellung
         ttk.Label(perf_frame, text="Qualität:").grid(row=0, column=3, sticky=tk.W, padx=(0, 5))
         self.quality_var = tk.IntVar()
-        quality_scale = ttk.Scale(perf_frame, from_=30, to=95, variable=self.quality_var, 
+        quality_scale = ttk.Scale(perf_frame, from_=30, to=99, variable=self.quality_var, 
                                  orient="horizontal", length=100, command=self.update_image_quality)
         quality_scale.grid(row=0, column=4, padx=(0, 10))
         self.quality_label = ttk.Label(perf_frame, text="")
@@ -408,9 +422,25 @@ class IDSNXTCameraApp:
         flip_v_check.grid(row=7, column=0, sticky=tk.W, pady=(0, 10))
         self.flip_v_var.trace_add('write', lambda *args: self.save_all_settings())
         
+        # Bildrotation Dropdown
+        ttk.Label(control_frame, text="Rotation:").grid(row=8, column=0, sticky=tk.W, pady=(0, 5))
+        rotation_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.rotation_var,
+            values=[0, 90, 180, 270],
+            state="readonly",
+            width=10
+        )
+        rotation_combo.grid(row=9, column=0, sticky=tk.W, pady=(0, 10))
+        rotation_combo.bind('<<ComboboxSelected>>', lambda e: self.save_all_settings())
+
+        # Vollbild-Button
+        self.fullscreen_btn = ttk.Button(control_frame, text="Vollbild", command=self.toggle_fullscreen)
+        self.fullscreen_btn.grid(row=10, column=0, sticky=tk.W, pady=(0, 10))
+
         # Info-Textfeld
         info_frame = ttk.LabelFrame(control_frame, text="Geräteinformationen", padding="5")
-        info_frame.grid(row=8, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        info_frame.grid(row=11, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
         self.info_text = tk.Text(info_frame, height=8, width=30, wrap=tk.WORD)
         info_scroll = ttk.Scrollbar(info_frame, orient="vertical", command=self.info_text.yview)
@@ -884,7 +914,6 @@ class IDSNXTCameraApp:
         self.start_stream_btn.configure(state="normal")
         self.stop_stream_btn.configure(state="disabled")
         self.video_label.configure(image="", text="Stream gestoppt")
-    
     def stream_worker(self):
         """Worker-Thread für Live-Streaming"""
         while self.streaming_active:
@@ -1050,6 +1079,11 @@ class IDSNXTCameraApp:
 
     def resize_image_to_label(self, image):
         """Skaliert ein PIL-Image auf die Größe des Video-Labels und bewahrt das Seitenverhältnis"""
+        # Rotation anwenden
+        rotation = self.rotation_var.get()
+        if rotation in [90, 180, 270]:
+            image = image.rotate(rotation, expand=True)
+        
         label_w = self.video_label.winfo_width()
         label_h = self.video_label.winfo_height()
         if label_w <= 1 or label_h <= 1:
@@ -1068,90 +1102,29 @@ class IDSNXTCameraApp:
 
         return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
     
-    def handle_stream_error(self, error_msg):
-        """Stream-Fehler behandeln"""
-        self.stop_streaming()
-        if not self.streaming_available:
-            self.video_label.configure(text="Live-Bilder werden über Einzelbildaufnahme dargestellt")
-        else:
-            self.video_label.configure(text=f"Stream-Fehler: {error_msg}")
-    
-    def update_performance_stats(self, latency):
-        """Performance-Statistiken aktualisieren"""
-        current_time = time.time()
-        self.fps_counter += 1
-        
-        # FPS alle Sekunde aktualisieren
-        if current_time - self.fps_last_time >= 1.0:
-            fps = self.fps_counter / (current_time - self.fps_last_time)
-            self.current_live_fps = round(fps, 1)  # Aktuelle Live-Stream FPS speichern
-            self.fps_counter = 0
-            self.fps_last_time = current_time
-            
-            # Performance-Anzeige aktualisieren
-            self.perf_label.configure(text=f"FPS: {fps:.1f} | Latenz: {latency:.0f}ms | Q: {self.adaptive_quality}")
-            print(f"📈 Live-Stream Performance: FPS={self.current_live_fps}, Latenz={latency:.0f}ms")
-            
-            # Live-FPS Info im Systemmonitor aktualisieren
-            if hasattr(self, 'live_fps_info'):
-                self.live_fps_info.configure(text=f"Live-Stream: {self.current_live_fps} FPS")
-    
-    def update_target_fps(self, value):
-        """Ziel-FPS aktualisieren"""
-        self.target_fps = int(float(value))
-        self.fps_label.configure(text=f"{self.target_fps} FPS")
-    
-    def update_image_quality(self, value):
-        """Bildqualität aktualisieren"""
-        quality = int(float(value))
-        self.quality_label.configure(text=f"{quality}%")
-        self.adaptive_quality = quality
-    
-    def capture_image(self):
-        """Einzelbild aufnehmen"""
-        if not self.camera_handler:
-            messagebox.showerror("Fehler", "Keine Verbindung zur Kamera!")
-            return
-        
-        try:
-            raw_dir = self.project_manager.get_raw_images_dir()
-            filename = raw_dir / f"capture_{int(time.time())}.jpg"
-            self.camera_handler.save_camera_image_latest(str(filename))
-            messagebox.showinfo("Erfolg", f"Bild gespeichert als: {filename.name}")
-            self.refresh_gallery()
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Aufnehmen: {str(e)}")
-    
-    def update_exposure(self, value):
-        """Belichtungszeit aktualisieren"""
-        exposure = int(float(value))
-        self.exposure_label.configure(text=f"{exposure} µs")
-        
-        if self.camera_handler:
-            try:
-                self.camera_handler.set_camera_setting("ExposureTime", exposure)
-            except Exception as e:
-                print(f"Fehler beim Setzen der Belichtungszeit: {e}")
-    
-    def update_gain(self, value):
-        """Gain aktualisieren"""
-        gain = float(value)
-        self.gain_label.configure(text=f"{gain:.1f} dB")
-        
-        if self.camera_handler:
-            try:
-                self.camera_handler.set_camera_setting("Gain", gain)
-            except Exception as e:
-                print(f"Fehler beim Setzen des Gains: {e}")
-    
     def update_flip(self):
         """Spiegelung aktualisieren"""
         if self.camera_handler:
             try:
                 self.camera_handler.set_camera_setting("FlipHorizontal", self.flip_h_var.get())
                 self.camera_handler.set_camera_setting("FlipVertical", self.flip_v_var.get())
+                
+                # Nach Flip auch Rotation anwenden (Bild wird bei Anzeige rotiert)
+                rotation = self.rotation_var.get()
+                if rotation in [90, 180, 270]:
+                    self.camera_handler.set_camera_setting("Rotation", rotation)
+            
             except Exception as e:
                 print(f"Fehler beim Setzen der Spiegelung: {e}")
+
+    def toggle_fullscreen(self):
+        """Schaltet den Livestream in den Vollbildmodus um"""
+        self.is_fullscreen = not self.is_fullscreen
+        self.root.attributes("-fullscreen", self.is_fullscreen)
+        if self.is_fullscreen:
+            self.fullscreen_btn.configure(text="Vollbild verlassen")
+        else:
+            self.fullscreen_btn.configure(text="Vollbild")
 
     # ==================== Gallery ====================
     def create_gallery_tab(self):
@@ -1597,7 +1570,7 @@ class IDSNXTCameraApp:
             threshold_var.trace_add('write', lambda *args: self.save_detection_settings(False))
 
             # Scale
-            scale = ttk.Scale(class_frame, from_=0.1, to=0.95, variable=threshold_var,
+            scale = ttk.Scale(class_frame, from_=0.1, to=0.99, variable=threshold_var,
                              orient="horizontal", length=150, 
                              command=lambda v, cid=class_id: self.update_class_threshold(cid, v))
             scale.grid(row=0, column=1, padx=(0, 5))
