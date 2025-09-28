@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Read(//c/Users/Michel/AI_Vision_Projects/Tube ausschneiden/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

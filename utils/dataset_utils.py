@@ -152,15 +152,15 @@ class DatasetSplitter:
                         split_dirs[split_name]['images'],
                         img_path.name
                     )) + '\n')
-        
-        # Create data.yaml
+
+        # Create data.yaml with consistent forward slashes for cross-platform compatibility
         yaml_content = {
-            'path': output_dir,
-            'train': os.path.join(output_dir, 'train.txt'),
-            'val': os.path.join(output_dir, 'val.txt'),
+            'path': output_dir.replace('\\', '/'),
+            'train': os.path.join(output_dir, 'train.txt').replace('\\', '/'),
+            'val': os.path.join(output_dir, 'val.txt').replace('\\', '/'),
             'names': self.class_names
         }
-        
+
         yaml_path = os.path.join(output_dir, 'data.yaml')
         with open(yaml_path, 'w') as f:
             yaml.dump(yaml_content, f, default_flow_style=False)
