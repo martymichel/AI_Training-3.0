@@ -130,19 +130,27 @@ class ResizableRectItem(QGraphicsRectItem):
             # Store position after resize
             del self.resize_handle
             self.store_position()
+        else:
+            # Also store position after move
+            self.store_position()
         super().mouseReleaseEvent(event)
 
     def store_position(self):
         """Store the current position and dimensions."""
         if hasattr(self, 'scene_ref') and self.scene_ref and isinstance(self.scene_ref, ImageScene):
-            QTimer.singleShot(0, self.scene_ref.store_item_changes)
+            # Immediate storage without timer to ensure changes are saved
+            self.scene_ref.store_item_changes()
 
     def itemChange(self, change, value):
         """Handle item changes to prevent trailing effect."""
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
-            # Store position after move
-            self.scene().update()  # Force scene update to prevent trailing
+            # Force scene update to prevent trailing
+            self.scene().update()
+            # Store position immediately when position changes
             self.store_position()
+        elif change == QGraphicsRectItem.GraphicsItemChange.ItemPositionChange:
+            # Also store during position change to catch all movements
+            return super().itemChange(change, value)
         return super().itemChange(change, value)
 
 # -------------------------------
@@ -196,12 +204,8 @@ class ImageScene(QGraphicsScene):
     def store_item_changes(self):
         """Store current annotations when boxes change."""
         if self.main_window:
-            # Use QTimer to avoid multiple rapid saves
-            if not hasattr(self, '_save_timer'):
-                self._save_timer = QTimer()
-                self._save_timer.setSingleShot(True)
-                self._save_timer.timeout.connect(self.main_window.store_annotations)
-            self._save_timer.start(100)  # Wait 100ms before saving
+            # Direct storage to ensure changes are immediately saved
+            self.main_window.store_annotations()
 
 # -------------------------------
 # Hauptapplikation
@@ -560,9 +564,15 @@ class ImageLabelingApp(QMainWindow):
         QMessageBox.information(self, "Info / Shortcuts", help_text)
 
     def delete_selected_boxes(self):
+        deleted_any = False
         for item in self.scene.selectedItems():
             if isinstance(item, ResizableRectItem):
                 self.scene.removeItem(item)
+                deleted_any = True
+
+        # Store annotations after deletion to persist changes
+        if deleted_any:
+            self.store_annotations()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_N:
@@ -576,33 +586,52 @@ class ImageLabelingApp(QMainWindow):
         else:
             super().keyPressEvent(event)
 
+    def focusOutEvent(self, event):
+        """Save annotations when application loses focus."""
+        self.store_annotations()
+        super().focusOutEvent(event)
+
+    def closeEvent(self, event):
+        """Save annotations when application is closed."""
+        self.store_annotations()
+        super().closeEvent(event)
+
     def store_annotations(self):
         """Speichert die aktuellen Annotationen des angezeigten Bildes."""
+        if self.current_index < 0 or self.current_index >= len(self.image_files):
+            return
+
         image_path = self.image_files[self.current_index]
         image = cv2.imread(image_path)
         if image is None:
             return
-        
+
         img_height, img_width = image.shape[:2]
         ann_list = []
-        
+
         for item in self.scene.items():
             if isinstance(item, ResizableRectItem):
                 r = item.rect()
+                # Skip invalid rectangles
+                if r.width() <= 0 or r.height() <= 0:
+                    continue
+
                 # Convert to YOLO format (normalized)
                 x_center = (r.x() + r.width()/2) / img_width
                 y_center = (r.y() + r.height()/2) / img_height
                 width = r.width() / img_width
                 height = r.height() / img_height
-                
+
                 # Ensure values are within valid range
                 x_center = max(0.0, min(1.0, x_center))
                 y_center = max(0.0, min(1.0, y_center))
                 width = max(0.0, min(1.0, width))
                 height = max(0.0, min(1.0, height))
-                
-                ann_list.append((item.class_id, x_center, y_center, width, height))
-        
+
+                # Only add if the box has valid dimensions
+                if width > 0 and height > 0:
+                    ann_list.append((item.class_id, x_center, y_center, width, height))
+
         self.annotations[image_path] = ann_list
 
     def next_image(self):
@@ -629,9 +658,23 @@ class ImageLabelingApp(QMainWindow):
         if prev_image not in self.annotations:
             QMessageBox.information(self, "Info", "Vorheriges Bild hat keine Annotationen.")
             return
+
+        # Store current annotations first to preserve any changes
         self.store_annotations()
-        self.annotations[self.image_files[self.current_index]] = self.annotations[prev_image].copy()
-        self.load_current_image()
+
+        # Only copy annotations if current image has no annotations yet
+        current_image = self.image_files[self.current_index]
+        if current_image not in self.annotations or len(self.annotations[current_image]) == 0:
+            self.annotations[current_image] = self.annotations[prev_image].copy()
+            self.load_current_image()
+        else:
+            # If current image already has annotations, ask user if they want to replace them
+            reply = QMessageBox.question(self, "Annotationen ersetzen",
+                                       "Das aktuelle Bild hat bereits Annotationen. Möchten Sie diese durch die vorherigen ersetzen?",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.annotations[current_image] = self.annotations[prev_image].copy()
+                self.load_current_image()
 
     def generate_dataset(self):
         if not self.dest_dir:

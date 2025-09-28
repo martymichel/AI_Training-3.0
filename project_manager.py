@@ -177,7 +177,7 @@ class ProjectManagerDialog(QDialog):
         
         # Titel mit Icon
         header_layout = QHBoxLayout()
-        title = QLabel("🤖 Projekt-Manager")
+        title = QLabel("Projekt-Manager")
         title.setFont(QFont("Arial", 18, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(title)

@@ -1,5 +1,10 @@
 Die Tools bilden eine vollständige End-to-End-Pipeline für die Entwicklung und Anwendung von Computer Vision-Modellen, speziell für die Objekterkennung mit YOLO:
 
+# START
+
+python main.py
+
+
 # Datenerfassung
 
 Beginnend mit der Kamera-App (Nr. 1), die das Aufnehmen von Bildern für die Erstellung eines Datensatzes ermöglicht.
