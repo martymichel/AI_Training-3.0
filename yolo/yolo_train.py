@@ -48,7 +48,7 @@ def get_device_settings():
 
 def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr, close_mosaic,
                    momentum, warmup_epochs, warmup_momentum, box, dropout, project, name,
-                   progress_callback=None, log_callback=None):
+                   model_path="yolo11n.pt", progress_callback=None, log_callback=None):
     """Start YOLO training with GPU support."""
     try:
         setup_logging()
@@ -70,7 +70,8 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
         logger.info(f"Workers: {workers}")
         
         # Initialize model VERSION 11 - newest version
-        model = YOLO("yolo11n.pt")  # Use standard YOLOv8 nano model
+        model = YOLO(model_path)  # Use specified model
+        logger.info(f"Loaded model: {model_path}")
         
         # Log progress using the callback
         if log_callback: 
@@ -81,41 +82,78 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
             log_callback(f"Batch: {batch}")
             log_callback(f"Learning rate: {lr0}")
             log_callback(f"Device: {device}")
+            log_callback(f"Model: {model_path}")
 
         # Check if resume is requested and checkpoint exists
         if resume:
-            ckpt_path = Path(project) / name / "weights" / "last0980/1..2.pt"
+            ckpt_path = Path(project) / name / "weights" / "last.pt"
             if not ckpt_path.is_file():
                 logger.warning(f"No checkpoint found at {ckpt_path}, starting new training.")
                 if log_callback:
                     log_callback(f"Checkpoint not found at {ckpt_path}. Starting new training.")
                 resume = False            
         
-        # Start training - REMOVED callbacks parameter as it's not supported
-        model.train(
-            resume=resume,
-            data=data_path,
-            epochs=epochs,
-            imgsz=imgsz,
-            batch=batch,
-            lr0=lr0,
-            optimizer="AdamW",  # Fixed default
-            device=device,
-            project=project,
-            name=name,
-            workers=workers,
-            exist_ok=True,
-            plots=True,  # Fixed default
-            multi_scale=multi_scale,
-            cos_lr=cos_lr,
-            close_mosaic=close_mosaic,
-            momentum=momentum,
-            warmup_epochs=warmup_epochs,
-            warmup_momentum=warmup_momentum,
-            box=box,
-            dropout=dropout,
-            seed=42  # Fixed seed for reproducibility
-        )
+        # Detect if segmentation model
+        is_segmentation = 'seg' in model_path.lower()
+
+        # Base training parameters
+        train_args = {
+            'resume': resume,
+            'data': data_path,
+            'epochs': epochs,
+            'imgsz': imgsz,
+            'batch': batch,
+            'lr0': lr0,
+            'optimizer': 'auto',  # Let YOLO11 choose automatically
+            'device': device,
+            'project': project,
+            'name': name,
+            'workers': workers,
+            'exist_ok': True,
+            'plots': True,
+            'save': True,
+            'val': True,
+            'verbose': True,
+            # Loss weights (YOLO11 defaults)
+            'box': 7.5,  # Box loss gain
+            'cls': 0.5,  # Classification loss gain
+            'dfl': 1.5,  # Distribution focal loss gain
+            # Training hyperparameters
+            'cos_lr': cos_lr,
+            'close_mosaic': close_mosaic,
+            'momentum': momentum,
+            'warmup_epochs': warmup_epochs,
+            'warmup_momentum': warmup_momentum,
+            # Augmentation parameters
+            'hsv_h': 0.015,  # HSV-Hue augmentation
+            'hsv_s': 0.7,    # HSV-Saturation augmentation
+            'degrees': 0.0,   # Image rotation (+/- deg)
+            'translate': 0.1, # Image translation (+/- fraction)
+            'scale': 0.5,     # Image scale (+/- gain)
+            'mosaic': 1.0,    # Mosaic augmentation probability
+            'mixup': 0.0,     # Mixup augmentation probability
+            'seed': 42        # Fixed seed for reproducibility
+        }
+
+        # Add segmentation-specific parameters
+        if is_segmentation:
+            train_args.update({
+                'copy_paste': 0.0,        # Copy-paste augmentation
+                'copy_paste_mode': 'flip', # Copy-paste mode
+                'overlap_mask': True,      # Overlap masks during training
+                'mask_ratio': 4           # Mask downsampling ratio
+            })
+
+        # Add multi-scale training if requested
+        if multi_scale:
+            train_args['rect'] = False  # Disable rectangular training for multi-scale
+
+        if log_callback:
+            log_callback(f"Training {'segmentation' if is_segmentation else 'detection'} model: {model_path}")
+            log_callback(f"Segmentation-specific parameters: {is_segmentation}")
+
+        # Start training with optimized parameters for YOLO11
+        model.train(**train_args)
         
         # Manual progress tracking 
         if progress_callback:
@@ -137,3 +175,45 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
         logger.error(error_msg)
         if progress_callback:
             progress_callback(0, error_msg)
+
+
+def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, augment,
+                           project, name, model_path="yolo11n.pt", callback=None):
+    """Start training in a separate thread with simplified parameters."""
+    import threading
+
+    def training_worker():
+        try:
+            start_training(
+                data_path=data_path,
+                epochs=epochs,
+                imgsz=imgsz,
+                batch=batch,
+                lr0=lr0,
+                resume=False,
+                multi_scale=False,
+                cos_lr=True,
+                close_mosaic=10,
+                momentum=0.937,
+                warmup_epochs=3,
+                warmup_momentum=0.8,
+                box=7.5,  # Use YOLO11 default
+                dropout=0.0,  # Keep for backward compatibility
+                project=project,
+                name=name,
+                model_path=model_path,
+                progress_callback=callback
+            )
+            if callback:
+                callback(100)  # Signal completion
+        except Exception as e:
+            error_msg = f"Training failed: {str(e)}"
+            logger.error(error_msg)
+            if callback:
+                callback(0, error_msg)
+
+    # Start training in separate thread
+    thread = threading.Thread(target=training_worker)
+    thread.daemon = True
+    thread.start()
+    return thread

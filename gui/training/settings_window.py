@@ -19,7 +19,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
 from config import Config
-from utils.validation import validate_yaml, check_gpu
+from utils.validation import validate_yaml, validate_yaml_for_model_type, check_gpu
 from gui.training.settings_ui import create_settings_ui
 from gui.training.dashboard_view import create_dashboard_tabs
 from gui.training.training_thread import (
@@ -38,9 +38,10 @@ logger.addHandler(ch)
 class TrainSettingsWindow(QMainWindow):
     """Main window for YOLO training with integrated dashboard."""
 
-    def __init__(self):
+    def __init__(self, project_manager=None):
         super().__init__()
         self.training_active = False
+        self.project_manager = project_manager
         self.setWindowTitle("YOLO Training Advanced")
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
@@ -128,6 +129,15 @@ class TrainSettingsWindow(QMainWindow):
 
         # Create all settings UI components
         self.settings_controls = create_settings_ui(self)
+
+        # Initialize model selection based on project annotations if available
+        if self.project_manager:
+            try:
+                # Trigger annotation type detection and model selection update
+                annotation_type = self.project_manager.detect_annotation_type()
+                logger.info(f"Detected annotation type: {annotation_type}")
+            except Exception as e:
+                logger.warning(f"Could not detect annotation type: {e}")
 
         # Progress and control section
         progress_frame = QFrame()
@@ -282,14 +292,35 @@ class TrainSettingsWindow(QMainWindow):
             )
             return
 
-        is_valid, error_message = validate_yaml(data_path)
+        # Get current model type for validation
+        model_type = getattr(self, 'model_type_input', None)
+        if model_type:
+            model_type_str = model_type.currentText().lower()
+        else:
+            model_type_str = None
+
+        # Use enhanced validation that considers model type
+        is_valid, message = validate_yaml_for_model_type(data_path, model_type_str)
         if not is_valid:
             QMessageBox.critical(
                 self,
                 "Validierungsfehler",
-                f"Fehler in der YAML-Datei:\n{error_message}",
+                f"Fehler in der YAML-Datei:\n{message}",
             )
             return
+        elif "Warning:" in message:
+            # Show warning but allow to continue
+            response = QMessageBox.warning(
+                self,
+                "Validierungswarnung",
+                f"{message}\n\nMöchten Sie trotzdem fortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if response == QMessageBox.StandardButton.No:
+                return
+        else:
+            # Show success message with format info
+            logger.info(f"YAML validation successful: {message}")
 
         # Check GPU availability
         gpu_available, gpu_message = check_gpu()
@@ -317,6 +348,17 @@ class TrainSettingsWindow(QMainWindow):
         warmup_momentum = self.warmup_momentum_input.value()
         box = self.box_input.value()
         dropout = self.dropout_input.value()
+
+        # Get model selection
+        model_path = getattr(self, 'model_input', None)
+        if model_path:
+            model_path = model_path.currentText()
+        else:
+            # Fallback to project manager or default
+            if self.project_manager:
+                model_path = self.project_manager.get_default_model_path()
+            else:
+                model_path = "yolo11n.pt"
 
         # Get project settings
         self.project = self.project_input.text() or Config.training.project_dir
@@ -371,6 +413,7 @@ class TrainSettingsWindow(QMainWindow):
             dropout,
             self.project,
             self.experiment,
+            model_path,
         )
 
     def stop_training(self):

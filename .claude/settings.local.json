@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(dir:*)",
-      "Read(//c/Users/Michel/AI_Vision_Projects/Tube ausschneiden/**)"
+      "Read(//c/Users/Michel/AI_Vision_Projects/Tube ausschneiden/**)",
+      "Bash(cat:*)",
+      "Read(//p/PY/outer_tube_trio_splitter_and_segmenter/**)",
+      "WebSearch",
+      "WebFetch(domain:docs.ultralytics.com)"
     ],
     "deny": [],
     "ask": []

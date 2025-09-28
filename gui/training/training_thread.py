@@ -22,7 +22,7 @@ class TrainingSignals(QObject):
 
 def start_training_thread(signals, data_path, epochs, imgsz, batch, lr0, resume, multi_scale,
                         cos_lr, close_mosaic, momentum, warmup_epochs, warmup_momentum,
-                        box, dropout, project, experiment):
+                        box, dropout, project, experiment, model_path="yolo11n.pt"):
     """Start training in a separate thread."""
     stop_event.clear()
     training_thread = threading.Thread(
@@ -31,7 +31,7 @@ def start_training_thread(signals, data_path, epochs, imgsz, batch, lr0, resume,
             signals,
             data_path, epochs, imgsz, batch, lr0, resume, multi_scale,
             cos_lr, close_mosaic, momentum, warmup_epochs, warmup_momentum,
-            box, dropout, project, experiment
+            box, dropout, project, experiment, model_path
         )
     )
     training_thread.daemon = True
@@ -40,7 +40,7 @@ def start_training_thread(signals, data_path, epochs, imgsz, batch, lr0, resume,
 
 def run_training(signals, data_path, epochs, imgsz, batch, lr0, resume, multi_scale,
                  cos_lr, close_mosaic, momentum, warmup_epochs, warmup_momentum,
-                 box, dropout, project, experiment):
+                 box, dropout, project, experiment, model_path="yolo11n.pt"):
     """Run the training process in a separate thread using a subprocess."""
 
     global training_process
@@ -68,6 +68,7 @@ def run_training(signals, data_path, epochs, imgsz, batch, lr0, resume, multi_sc
             "--dropout", str(dropout),
             "--project", project,
             "--experiment", experiment,
+            "--model", model_path,
         ]
         if resume:
             cmd.append("--resume")

@@ -2,15 +2,51 @@
 
 import os
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-    QFileDialog, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox, 
-    QScrollArea, QGridLayout
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox,
+    QScrollArea, QGridLayout, QComboBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from config import Config
 from gui.training.parameter_info import ParameterInfoButton
+
+
+def update_model_options(window):
+    """Update available model options based on selected type."""
+    model_type = window.model_type_input.currentText().lower()
+
+    window.model_input.clear()
+
+    if model_type == "segmentation":
+        models = [
+            "yolo11n-seg.pt",
+            "yolo11s-seg.pt",
+            "yolo11m-seg.pt",
+            "yolo11l-seg.pt",
+            "yolo11x-seg.pt"
+        ]
+    else:  # detection
+        models = [
+            "yolo11n.pt",
+            "yolo11s.pt",
+            "yolo11m.pt",
+            "yolo11l.pt",
+            "yolo11x.pt"
+        ]
+
+    window.model_input.addItems(models)
+
+    # Set default based on project manager if available
+    if hasattr(window, 'project_manager') and window.project_manager:
+        try:
+            default_model = window.project_manager.get_default_model_path(model_type)
+            index = window.model_input.findText(default_model)
+            if index >= 0:
+                window.model_input.setCurrentIndex(index)
+        except:
+            pass  # Use first item as default
 
 def create_settings_ui(window):
     """Create and return the settings UI components."""
@@ -139,7 +175,60 @@ def create_basic_settings(window):
         "```"
     )
     group_layout.addWidget(info_button, row, 3)
-    
+
+    row += 1
+    # Model Type Selection
+    group_layout.addWidget(QLabel("Model-Typ:"), row, 0)
+    window.model_type_input = QComboBox()
+    window.model_type_input.addItems(["Detection", "Segmentation"])
+    window.model_type_input.currentTextChanged.connect(lambda: update_model_options(window))
+    group_layout.addWidget(window.model_type_input, row, 1)
+
+    info_button = ParameterInfoButton(
+        "Wählen Sie den Modell-Typ basierend auf Ihren Annotationen:\n\n"
+        "- Detection: Für Bounding-Box Annotationen\n"
+        "- Segmentation: Für Polygon/Mask Annotationen\n\n"
+        "Der Typ wird automatisch basierend auf den Projekt-Annotationen erkannt."
+    )
+    group_layout.addWidget(info_button, row, 3)
+
+    row += 1
+    # Model Selection
+    group_layout.addWidget(QLabel("Modell:"), row, 0)
+    window.model_input = QComboBox()
+    window.model_input.setEditable(True)  # Allow custom model paths
+    group_layout.addWidget(window.model_input, row, 1)
+
+    info_button = ParameterInfoButton(
+        "Vorgefertigte YOLO-Modelle für verschiedene Anwendungen:\n\n"
+        "Detection-Modelle:\n"
+        "- yolo11n.pt: Nano (schnell, wenig Genauigkeit)\n"
+        "- yolo11s.pt: Small (ausgewogen)\n"
+        "- yolo11m.pt: Medium (empfohlen)\n"
+        "- yolo11l.pt: Large (langsam, hohe Genauigkeit)\n\n"
+        "Segmentation-Modelle:\n"
+        "- yolo11n-seg.pt: Nano Segmentation\n"
+        "- yolo11s-seg.pt: Small Segmentation\n"
+        "- yolo11m-seg.pt: Medium Segmentation (empfohlen)\n"
+        "- yolo11l-seg.pt: Large Segmentation\n\n"
+        "Oder geben Sie einen eigenen Modellpfad ein."
+    )
+    group_layout.addWidget(info_button, row, 3)
+
+    # Initialize model options based on project manager if available
+    if hasattr(window, 'project_manager') and window.project_manager:
+        try:
+            recommended_type = window.project_manager.get_recommended_model_type()
+            if recommended_type == "segmentation":
+                window.model_type_input.setCurrentText("Segmentation")
+            else:
+                window.model_type_input.setCurrentText("Detection")
+        except:
+            pass  # Use default
+
+    # Update model options for the first time
+    update_model_options(window)
+
     # Basic training parameters
     training_group = QGroupBox("Basic Training Parameters")
     training_layout = QGridLayout(training_group)
@@ -168,7 +257,7 @@ def create_basic_settings(window):
     # Image size
     training_layout.addWidget(QLabel("Bildgröße:"), row, 0)
     window.imgsz_input = QSpinBox()
-    window.imgsz_input.setRange(640, 1280)
+    window.imgsz_input.setRange(320, 1280)  # Allow smaller sizes for segmentation
     window.imgsz_input.setValue(Config.training.image_size)
     window.imgsz_input.setSingleStep(32)
     training_layout.addWidget(window.imgsz_input, row, 1)
@@ -176,10 +265,13 @@ def create_basic_settings(window):
     info_button = ParameterInfoButton(
         "Die Größe, auf die alle Trainingsbilder skaliert werden (in Pixeln).\n\n"
         "Empfehlungen:\n"
+        "- 320-416: Kleinere Bilder, schnell, für einfache Segmentierung\n"
         "- 640: Standardwert, gute Balance aus Geschwindigkeit und Genauigkeit\n"
-        "- 832: Bessere Erkennung kleiner Fehler in Spritzgussteilen\n"
+        "- 832: Bessere Erkennung kleiner Details\n"
         "- 1024-1280: Höchste Genauigkeit, aber langsamer und benötigt mehr GPU-Speicher\n\n"
-        "Wichtig: Die Bildgröße sollte durch 32 teilbar sein (z.B. 640, 672, 704, usw.)."
+        "Segmentierungsmodelle: Funktionieren mit beliebigen Bildgrößen und Seitenverhältnissen.\n"
+        "Detection-Modelle: Funktionieren am besten mit quadratischen Bildern.\n\n"
+        "Wichtig: Die Bildgröße sollte durch 32 teilbar sein (z.B. 320, 416, 640, 832, usw.)."
     )
     training_layout.addWidget(info_button, row, 3)
     

@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--dropout", type=float, required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--experiment", required=True)
+    parser.add_argument("--model", default="yolo11n.pt")
     args = parser.parse_args()
 
     start_training(
@@ -39,6 +40,7 @@ def main():
         args.dropout,
         args.project,
         args.experiment,
+        model_path=args.model,
     )
 
 

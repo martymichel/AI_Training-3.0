@@ -6,12 +6,16 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QFont
 from yolo.yolo_train import start_training_threaded
 from gui.gui_dashboard import DashboardWindow
+from project_manager import ProjectManager
 import os
 class TrainSettingsWindow(QWidget):
-    def __init__(self):
+    def __init__(self, project_manager=None):
         super().__init__()
         self.setWindowTitle("Trainings-Einstellungen")
         self.setGeometry(150, 150, 600, 700)
+
+        # Project Manager Integration
+        self.project_manager = project_manager
 
         # Standardwerte setzen, damit check_results_csv() keinen Fehler wirft
         self.project = "yolo_training_results"
@@ -53,7 +57,7 @@ class TrainSettingsWindow(QWidget):
         # Bildgrösse
         self.imgsz_label = QLabel("Bildgrösse:")
         self.imgsz_input = QSpinBox()
-        self.imgsz_input.setRange(32, 2048)
+        self.imgsz_input.setRange(320, 1280)  # Updated range for segmentation support
         self.imgsz_input.setValue(640)
         layout.addWidget(self.imgsz_label)
         layout.addWidget(self.imgsz_input)
@@ -74,6 +78,21 @@ class TrainSettingsWindow(QWidget):
         self.lr_input.setValue(0.01)
         layout.addWidget(self.lr_label)
         layout.addWidget(self.lr_input)
+
+        # Model Type and Model Selection
+        self.model_type_label = QLabel("Model-Typ:")
+        self.model_type_input = QComboBox()
+        self.model_type_input.addItems(["Detection", "Segmentation"])
+        self.model_type_input.currentTextChanged.connect(self.update_model_options)
+        layout.addWidget(self.model_type_label)
+        layout.addWidget(self.model_type_input)
+
+        # Model Selection
+        self.model_label = QLabel("Modell:")
+        self.model_input = QComboBox()
+        self.model_input.setEditable(True)  # Allow custom model paths
+        layout.addWidget(self.model_label)
+        layout.addWidget(self.model_input)
 
         # Optimizer Auswahl mit AdamW als Standard
         self.optimizer_label = QLabel("Optimizer:")
@@ -114,11 +133,73 @@ class TrainSettingsWindow(QWidget):
 
         self.setLayout(layout)
 
+        # Initialize model options based on project manager
+        self.initialize_model_settings()
+
         # Hintergrundprüfung auf results.csv
         self.check_timer = QTimer()
         self.check_timer.setInterval(5000)  # Alle 5 Sekunden
         self.check_timer.timeout.connect(self.check_results_csv)
         self.check_timer.start()
+
+    def initialize_model_settings(self):
+        """Initialize model settings based on project manager."""
+        try:
+            if self.project_manager:
+                # Detect annotation type and set appropriate default
+                recommended_type = self.project_manager.get_recommended_model_type()
+                if recommended_type == "segmentation":
+                    self.model_type_input.setCurrentText("Segmentation")
+                else:
+                    self.model_type_input.setCurrentText("Detection")
+
+                # Set default model path
+                default_model = self.project_manager.get_default_model_path()
+            else:
+                default_model = "yolo11n.pt"
+
+            # Update model options
+            self.update_model_options()
+
+        except Exception as e:
+            print(f"Error initializing model settings: {e}")
+            # Fallback to defaults
+            self.update_model_options()
+
+    def update_model_options(self):
+        """Update available model options based on selected type."""
+        model_type = self.model_type_input.currentText().lower()
+
+        self.model_input.clear()
+
+        if model_type == "segmentation":
+            models = [
+                "yolo11n-seg.pt",
+                "yolo11s-seg.pt",
+                "yolo11m-seg.pt",
+                "yolo11l-seg.pt",
+                "yolo11x-seg.pt"
+            ]
+        else:  # detection
+            models = [
+                "yolo11n.pt",
+                "yolo11s.pt",
+                "yolo11m.pt",
+                "yolo11l.pt",
+                "yolo11x.pt"
+            ]
+
+        self.model_input.addItems(models)
+
+        # Set default based on project manager if available
+        if self.project_manager:
+            try:
+                default_model = self.project_manager.get_default_model_path(model_type)
+                index = self.model_input.findText(default_model)
+                if index >= 0:
+                    self.model_input.setCurrentIndex(index)
+            except:
+                pass  # Use first item as default
 
     def browse_data(self):
         from PyQt6.QtWidgets import QFileDialog
@@ -130,18 +211,31 @@ class TrainSettingsWindow(QWidget):
     def start_training(self):
         data_path = self.data_input.text()
         epochs = self.epochs_input.value()
+        imgsz = self.imgsz_input.value()
+        batch = self.batch_input.value()
         lr0 = self.lr_input.value()
         optimizer = self.optimizer_input.currentText()
+        model_path = self.model_input.currentText()
+
         # Bereinige Eingaben (falls nötig)
         self.project = self.project_input.text() or "yolo_training_results"
         self.experiment = self.name_input.text() or "experiment"
+
+        # Validation
+        if not data_path:
+            QMessageBox.warning(self, "Fehler", "Bitte wählen Sie eine YAML-Datei aus.")
+            return
+
+        if not model_path:
+            QMessageBox.warning(self, "Fehler", "Bitte wählen Sie ein Modell aus.")
+            return
 
         self.progress_bar.setValue(0)
         self.start_button.setEnabled(False)
 
         start_training_threaded(
-            data_path, epochs, 640, 16, lr0, optimizer, False, 
-            self.project, self.experiment, 
+            data_path, epochs, imgsz, batch, lr0, optimizer, False,
+            self.project, self.experiment, model_path,
             callback=self.update_progress
         )
 

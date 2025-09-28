@@ -781,13 +781,13 @@ class WorkflowStatusWidget(QWidget):
                 'description': 'Kamera-Stream & Bilderfassung'
             },
             WorkflowStep.LABELING: {
-                'title': '2. Bilder labeln', 
+                'title': '2. Bilder labeln',
                 'icon': '🏷️',
                 'description': 'Bounding Boxes zeichnen'
             },
             WorkflowStep.AUGMENTATION: {
                 'title': '3. Daten augmentieren',
-                'icon': '🔄', 
+                'icon': '🔄',
                 'description': 'Trainingsdaten erweitern'
             },
             WorkflowStep.SPLITTING: {
@@ -802,7 +802,7 @@ class WorkflowStatusWidget(QWidget):
             },
             WorkflowStep.VERIFICATION: {
                 'title': '6. Modell prüfen',
-                'icon': '✅', 
+                'icon': '✅',
                 'description': 'Genauigkeit validieren'
             },
             WorkflowStep.LIVE_DETECTION: {
@@ -1224,7 +1224,7 @@ Generiert von AI Vision Tools Project Manager
 class WorkflowStep(Enum):
     """Workflow-Schritte mit Status-Tracking"""
     CAMERA = "01_camera"
-    LABELING = "02_labeling" 
+    LABELING = "02_labeling"
     AUGMENTATION = "03_augmentation"
     SPLITTING = "04_splitting"
     TRAINING = "05_training"
@@ -1257,6 +1257,11 @@ class ProjectConfig:
     # Model-Versionierung
     models: List[Dict] = None
     current_model: Optional[str] = None
+
+    # Annotation Type Detection
+    annotation_type: str = "unknown"  # "bbox", "polygon", "mixed", "unknown"
+    has_bbox_annotations: bool = False
+    has_polygon_annotations: bool = False
     
     def __post_init__(self):
         """Initialisiert None-Werte mit leeren Dicts/Listen"""
@@ -1524,7 +1529,89 @@ class ProjectManager:
         path = self.project_root / "02_labeled"
         path.mkdir(exist_ok=True)
         return path
+
+    def detect_annotation_type(self) -> str:
+        """Detektiert den Typ der Annotationen im Projekt."""
+        try:
+            labeled_dir = self.get_labeled_dir()
+            has_bbox = False
+            has_polygon = False
+
+            # Suche nach .txt Annotation-Dateien
+            for txt_file in labeled_dir.glob("*.txt"):
+                try:
+                    with open(txt_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+
+                            parts = line.split()
+                            if len(parts) < 5:
+                                continue
+
+                            # Bounding Box: class_id x_center y_center width height (5 Werte)
+                            if len(parts) == 5:
+                                has_bbox = True
+                            # Polygon: class_id x1 y1 x2 y2 x3 y3 ... (6+ Werte, gerade Anzahl)
+                            elif len(parts) >= 6 and len(parts) % 2 == 0:
+                                has_polygon = True
+
+                            # Früh beenden wenn beide Typen gefunden
+                            if has_bbox and has_polygon:
+                                break
+
+                    if has_bbox and has_polygon:
+                        break
+
+                except Exception as e:
+                    logger.warning(f"Fehler beim Lesen von {txt_file}: {e}")
+                    continue
+
+            # Annotation-Typ bestimmen
+            if has_bbox and has_polygon:
+                annotation_type = "mixed"
+            elif has_polygon:
+                annotation_type = "polygon"
+            elif has_bbox:
+                annotation_type = "bbox"
+            else:
+                annotation_type = "unknown"
+
+            # Konfiguration aktualisieren
+            self.config.annotation_type = annotation_type
+            self.config.has_bbox_annotations = has_bbox
+            self.config.has_polygon_annotations = has_polygon
+            self.save_config()
+
+            logger.info(f"Annotation-Typ erkannt: {annotation_type} (bbox: {has_bbox}, polygon: {has_polygon})")
+            return annotation_type
+
+        except Exception as e:
+            logger.error(f"Fehler bei Annotation-Typ-Erkennung: {e}")
+            return "unknown"
+
+    def get_recommended_model_type(self) -> str:
+        """Empfiehlt Modell-Typ basierend auf Annotation-Typ."""
+        annotation_type = self.detect_annotation_type()
+
+        if annotation_type in ["polygon", "mixed"]:
+            return "segmentation"
+        elif annotation_type == "bbox":
+            return "detection"
+        else:
+            return "detection"  # Default fallback
     
+    def get_default_model_path(self, model_type: str = None) -> str:
+        """Gibt Standard-Modell-Pfad basierend auf Annotation-Typ zurück."""
+        if model_type is None:
+            model_type = self.get_recommended_model_type()
+
+        if model_type == "segmentation":
+            return "yolo11n-seg.pt"
+        else:
+            return "yolo11n.pt"
+
     def get_augmented_dir(self) -> Path:
         """Verzeichnis für augmentierte Daten"""
         path = self.project_root / "03_augmented"
@@ -1856,11 +1943,11 @@ class ProjectManager:
         try:
             if not self.config.models:
                 return False, "Kein trainiertes Modell gefunden. Bitte zuerst Training durchführen."
-            
+
             current_model_path = self.get_current_model_path()
             if not current_model_path or not current_model_path.exists():
                 return False, "Aktives Modell nicht gefunden. Bitte Modell-Pfad überprüfen."
-            
+
             return True, f"Aktives Modell: {self.config.current_model}"
         except Exception as e:
             return False, f"Fehler beim Prüfen des trainierten Modells: {str(e)}"

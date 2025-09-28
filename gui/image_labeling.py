@@ -4,11 +4,11 @@ import cv2
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
-    QGraphicsRectItem, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QGraphicsRectItem, QGraphicsPolygonItem, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QFileDialog, QListWidget, QListWidgetItem, QMessageBox, QInputDialog,
-    QScrollArea
+    QScrollArea, QRadioButton, QButtonGroup
 )
-from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush, QPainter
+from PyQt6.QtGui import QPixmap, QPen, QColor, QFont, QBrush, QPainter, QPolygonF
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QTimer, QPoint
 
 import utils.labeling_utils as utils
@@ -154,6 +154,89 @@ class ResizableRectItem(QGraphicsRectItem):
         return super().itemChange(change, value)
 
 # -------------------------------
+# Resizable Polygon Item
+# -------------------------------
+class ResizablePolygonItem(QGraphicsPolygonItem):
+    def __init__(self, polygon, class_id, parent=None):
+        super().__init__(polygon, parent)
+        self.scene_ref = None  # Reference to scene for updating annotations
+        self.class_id = class_id
+        self.points = []
+        self.handle_size = QSizeF(20.0, 20.0)
+        self.setFlags(
+            QGraphicsPolygonItem.GraphicsItemFlag.ItemIsSelectable |
+            QGraphicsPolygonItem.GraphicsItemFlag.ItemIsMovable |
+            QGraphicsPolygonItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self.update_points_from_polygon()
+
+    def update_points_from_polygon(self):
+        """Update internal points list from polygon."""
+        self.points = [point for point in self.polygon()]
+
+    def paint(self, painter, option, widget):
+        """Paint the polygon and its handles."""
+        super().paint(painter, option, widget)
+
+        # Draw handles for vertices
+        if self.isSelected():
+            painter.setBrush(QBrush(QColor(255, 255, 255)))
+            painter.setPen(QPen(QColor(0, 0, 0), 1))
+            for point in self.points:
+                painter.drawEllipse(QRectF(
+                    point.x() - self.handle_size.width() / 2,
+                    point.y() - self.handle_size.height() / 2,
+                    self.handle_size.width(),
+                    self.handle_size.height()
+                ))
+
+    def mousePressEvent(self, event):
+        """Handle mouse press events for vertex editing."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.pos()
+            # Check if we clicked on a vertex handle
+            for i, point in enumerate(self.points):
+                if (pos - point).manhattanLength() < 15:
+                    self.setSelected(True)
+                    self.edit_vertex = i
+                    return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events for vertex editing."""
+        if hasattr(self, 'edit_vertex'):
+            pos = event.pos()
+            self.points[self.edit_vertex] = pos
+            # Update polygon
+            polygon = QPolygonF(self.points)
+            self.setPolygon(polygon)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events."""
+        if hasattr(self, 'edit_vertex'):
+            del self.edit_vertex
+            self.store_position()
+        else:
+            self.store_position()
+        super().mouseReleaseEvent(event)
+
+    def store_position(self):
+        """Store the current position and shape."""
+        if hasattr(self, 'scene_ref') and self.scene_ref and isinstance(self.scene_ref, ImageScene):
+            self.scene_ref.store_item_changes()
+
+    def itemChange(self, change, value):
+        """Handle item changes."""
+        if change == QGraphicsPolygonItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.scene().update()
+            self.store_position()
+        elif change == QGraphicsPolygonItem.GraphicsItemChange.ItemPositionChange:
+            return super().itemChange(change, value)
+        return super().itemChange(change, value)
+
+# -------------------------------
 # Scene zur Annotation
 # -------------------------------
 class ImageScene(QGraphicsScene):
@@ -167,24 +250,38 @@ class ImageScene(QGraphicsScene):
         self.current_color = QColor("black")
         self.current_class = 0
 
+        # Polygon drawing state
+        self.polygon_mode = False
+        self.drawing_polygon = False
+        self.polygon_points = []
+        self.temp_polygon_lines = []  # Temporary lines for visual feedback
+        self.start_point_threshold = 15  # Distance threshold to close polygon
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.drawing = True
-            self.start = event.scenePos()
-            self.temp_rect = QGraphicsRectItem(QRectF(self.start, self.start))
-            pen = QPen(self.current_color, 2)
-            self.temp_rect.setPen(pen)
-            self.addItem(self.temp_rect)
+            if self.polygon_mode:
+                self.handle_polygon_click(event.scenePos())
+            else:
+                # Bounding box mode
+                self.drawing = True
+                self.start = event.scenePos()
+                self.temp_rect = QGraphicsRectItem(QRectF(self.start, self.start))
+                pen = QPen(self.current_color, 2)
+                self.temp_rect.setPen(pen)
+                self.addItem(self.temp_rect)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.drawing and self.temp_rect:
+        if self.polygon_mode and self.drawing_polygon and self.polygon_points:
+            # Show preview line from last point to current mouse position
+            self.update_polygon_preview(event.scenePos())
+        elif self.drawing and self.temp_rect:
             rect = QRectF(self.start, event.scenePos()).normalized()
             self.temp_rect.setRect(rect)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self.drawing:
+        if event.button() == Qt.MouseButton.LeftButton and self.drawing and not self.polygon_mode:
             self.drawing = False
             final_rect = self.temp_rect.rect()
             if final_rect.width() < self.min_size or final_rect.height() < self.min_size:
@@ -200,6 +297,92 @@ class ImageScene(QGraphicsScene):
                 self.store_item_changes()  # Store initial box position
             self.temp_rect = None
         super().mouseReleaseEvent(event)
+
+    def handle_polygon_click(self, pos):
+        """Handle mouse clicks for polygon drawing."""
+        if not self.drawing_polygon:
+            # Start new polygon
+            self.drawing_polygon = True
+            self.polygon_points = [pos]
+            self.temp_polygon_lines = []
+        else:
+            # Check if we clicked near the start point to close polygon
+            start_point = self.polygon_points[0]
+            if (pos - start_point).manhattanLength() < self.start_point_threshold:
+                self.finish_polygon()
+            else:
+                # Add new point
+                self.polygon_points.append(pos)
+                # Add line from previous point to current point
+                if len(self.polygon_points) > 1:
+                    line = self.addLine(
+                        self.polygon_points[-2].x(), self.polygon_points[-2].y(),
+                        self.polygon_points[-1].x(), self.polygon_points[-1].y(),
+                        QPen(self.current_color, 2)
+                    )
+                    self.temp_polygon_lines.append(line)
+
+    def update_polygon_preview(self, mouse_pos):
+        """Update preview line while drawing polygon."""
+        # Remove old preview line
+        if hasattr(self, 'preview_line') and self.preview_line:
+            self.removeItem(self.preview_line)
+
+        # Add preview line from last point to current mouse position
+        if self.polygon_points:
+            last_point = self.polygon_points[-1]
+            self.preview_line = self.addLine(
+                last_point.x(), last_point.y(),
+                mouse_pos.x(), mouse_pos.y(),
+                QPen(self.current_color, 1, Qt.PenStyle.DashLine)
+            )
+
+    def finish_polygon(self):
+        """Complete the current polygon."""
+        if len(self.polygon_points) < 3:
+            # Need at least 3 points for a polygon
+            self.cancel_polygon()
+            return
+
+        # Remove temporary lines and preview
+        for line in self.temp_polygon_lines:
+            self.removeItem(line)
+        self.temp_polygon_lines = []
+
+        if hasattr(self, 'preview_line') and self.preview_line:
+            self.removeItem(self.preview_line)
+            self.preview_line = None
+
+        # Create polygon item
+        polygon = QPolygonF(self.polygon_points)
+        polygon_item = ResizablePolygonItem(polygon, self.current_class, None)
+        pen = QPen(self.current_color, 2)
+        brush = QBrush(self.current_color)
+        brush.setStyle(Qt.BrushStyle.Dense4Pattern)  # Semi-transparent fill
+        polygon_item.setPen(pen)
+        polygon_item.setBrush(brush)
+        polygon_item.scene_ref = self
+        self.addItem(polygon_item)
+
+        # Reset polygon drawing state
+        self.drawing_polygon = False
+        self.polygon_points = []
+        self.store_item_changes()
+
+    def cancel_polygon(self):
+        """Cancel current polygon drawing."""
+        # Remove temporary lines
+        for line in self.temp_polygon_lines:
+            self.removeItem(line)
+        self.temp_polygon_lines = []
+
+        if hasattr(self, 'preview_line') and self.preview_line:
+            self.removeItem(self.preview_line)
+            self.preview_line = None
+
+        # Reset state
+        self.drawing_polygon = False
+        self.polygon_points = []
 
     def store_item_changes(self):
         """Store current annotations when boxes change."""
@@ -356,10 +539,28 @@ class ImageLabelingApp(QMainWindow):
         nav_layout.addWidget(btn_next)
         side_layout.addLayout(nav_layout)
 
-        # Button zum Löschen selektierter Boxen
-        btn_delete_box = QPushButton("Ausgewählte Box(en) löschen")
-        btn_delete_box.clicked.connect(self.delete_selected_boxes)
-        side_layout.addWidget(btn_delete_box)
+        # Button zum Löschen selektierter Annotationen
+        btn_delete_annotation = QPushButton("Ausgewählte Annotation(en) löschen")
+        btn_delete_annotation.clicked.connect(self.delete_selected_boxes)
+        side_layout.addWidget(btn_delete_annotation)
+
+        # Drawing mode selection
+        mode_group = QWidget()
+        mode_layout = QVBoxLayout(mode_group)
+        mode_layout.addWidget(QLabel("Zeichenmodus:"))
+
+        self.mode_button_group = QButtonGroup()
+        self.bbox_radio = QRadioButton("Bounding Box")
+        self.polygon_radio = QRadioButton("Polygon")
+        self.bbox_radio.setChecked(True)  # Default to bounding box mode
+
+        self.mode_button_group.addButton(self.bbox_radio, 0)
+        self.mode_button_group.addButton(self.polygon_radio, 1)
+        self.mode_button_group.buttonClicked.connect(self.change_drawing_mode)
+
+        mode_layout.addWidget(self.bbox_radio)
+        mode_layout.addWidget(self.polygon_radio)
+        side_layout.addWidget(mode_group)
 
         # Klassenverwaltung: Liste der verfügbaren Objektklassen
         side_layout.addWidget(QLabel("Aktive Klasse:"))
@@ -485,29 +686,79 @@ class ImageLabelingApp(QMainWindow):
         # Vorhandene Annotationen wieder einfügen
         if image_path in self.annotations:
             for ann in self.annotations[image_path]:
-                # Convert normalized coordinates back to pixel values
-                class_id, x_center, y_center, width, height = ann
-                x_min = (x_center - width/2) * img_width
-                y_min = (y_center - height/2) * img_height
-                box_width = width * img_width
-                box_height = height * img_height
-                
+                if len(ann) < 3:
+                    continue
+
+                # Check if this is an old format annotation (backward compatibility)
+                if len(ann) == 5 and isinstance(ann[0], (int, float)):
+                    # Old format: (class_id, x_center, y_center, width, height)
+                    class_id, x_center, y_center, width, height = ann
+                    ann = ('bbox', class_id, x_center, y_center, width, height)
+
+                ann_type = ann[0]
+                class_id = ann[1]
+
                 if class_id < len(self.classes):
                     color = self.classes[class_id][1]
                 else:
                     color = QColor("black")
-                    
-                rect = QRectF(x_min, y_min, box_width, box_height)
-                box = ResizableRectItem(rect, class_id)
-                box.scene_ref = self.scene  # Set scene reference
-                pen = QPen(color, 2)
-                box.setPen(pen)
-                self.scene.addItem(box)
+
+                if ann_type == 'bbox' and len(ann) == 6:
+                    # Bounding box annotation
+                    _, class_id, x_center, y_center, width, height = ann
+                    x_min = (x_center - width/2) * img_width
+                    y_min = (y_center - height/2) * img_height
+                    box_width = width * img_width
+                    box_height = height * img_height
+
+                    rect = QRectF(x_min, y_min, box_width, box_height)
+                    box = ResizableRectItem(rect, class_id)
+                    box.scene_ref = self.scene
+                    pen = QPen(color, 2)
+                    box.setPen(pen)
+                    self.scene.addItem(box)
+
+                elif ann_type == 'polygon' and len(ann) >= 8:  # At least 3 points (class_id + 6 coordinates)
+                    # Polygon annotation
+                    coords = ann[2:]  # Skip type and class_id
+                    if len(coords) % 2 != 0:
+                        continue  # Skip invalid polygon (odd number of coordinates)
+
+                    # Convert normalized coordinates back to pixel values
+                    points = []
+                    for i in range(0, len(coords), 2):
+                        x = coords[i] * img_width
+                        y = coords[i+1] * img_height
+                        points.append(QPointF(x, y))
+
+                    if len(points) >= 3:
+                        polygon = QPolygonF(points)
+                        polygon_item = ResizablePolygonItem(polygon, class_id)
+                        polygon_item.scene_ref = self.scene
+                        pen = QPen(color, 2)
+                        brush = QBrush(color)
+                        brush.setStyle(Qt.BrushStyle.Dense4Pattern)
+                        polygon_item.setPen(pen)
+                        polygon_item.setBrush(brush)
+                        self.scene.addItem(polygon_item)
         # Aktive Klasse in der Scene aktualisieren
         current_row = self.class_list.currentRow()
         if current_row >= 0 and current_row < len(self.classes):
             self.scene.current_class = current_row
             self.scene.current_color = self.classes[current_row][1]
+
+    def change_drawing_mode(self, button):
+        """Change between bounding box and polygon drawing modes."""
+        if button == self.bbox_radio:
+            self.scene.polygon_mode = False
+            self.setWindowTitle("Bounding Box Annotation Tool")
+        elif button == self.polygon_radio:
+            self.scene.polygon_mode = True
+            self.setWindowTitle("Polygon Annotation Tool")
+
+        # Cancel any ongoing polygon drawing when switching modes
+        if hasattr(self.scene, 'cancel_polygon'):
+            self.scene.cancel_polygon()
 
     def change_active_class(self, index):
         if index < 0 or index >= len(self.classes):
@@ -552,21 +803,28 @@ class ImageLabelingApp(QMainWindow):
             "N: Nächstes Bild\n"
             "P: Vorheriges Bild\n"
             "K: Kopiere Annotationen vom vorherigen Bild\n"
-            "Entf/Backspace: Löscht ausgewählte Box\n"
+            "Entf/Backspace: Löscht ausgewählte Annotation\n"
+            "B: Wechsel zu Bounding Box Modus\n"
+            "G: Wechsel zu Polygon Modus\n"
+            "ESC: Polygon-Zeichnung abbrechen\n"
             "Strg + Mausrad: Zoom in/out\n\n"
+            "Zeichenmodi:\n"
+            "- Bounding Box: Klicken und ziehen für Rechteck\n"
+            "- Polygon: Einzelne Punkte klicken, Startpunkt nochmals klicken zum Beenden\n\n"
             "Zusätzlich:\n"
             "- Mit den Buttons in der Seitenleiste kann zwischen den Bildern gewechselt werden.\n"
             "- Mit 'Klasse hinzufügen' werden Klassen erstellt, denen automatisch eine Hintergrundfarbe aus einer vordefinierten Palette zugewiesen wird.\n"
             "- Mit 'Klasse entfernen' lassen sich vorhandene Klassen löschen.\n"
             "- Nach Verzeichniswahl werden die Pfade in der Seitenleiste angezeigt.\n"
-            "- Mit der Maus lassen sich Bounding Boxen an den Ecken skalieren."
+            "- Bounding Boxen können an den Ecken skaliert werden.\n"
+            "- Polygon-Punkte können einzeln verschoben werden."
         )
         QMessageBox.information(self, "Info / Shortcuts", help_text)
 
     def delete_selected_boxes(self):
         deleted_any = False
         for item in self.scene.selectedItems():
-            if isinstance(item, ResizableRectItem):
+            if isinstance(item, (ResizableRectItem, ResizablePolygonItem)):
                 self.scene.removeItem(item)
                 deleted_any = True
 
@@ -583,6 +841,18 @@ class ImageLabelingApp(QMainWindow):
             self.copy_previous_annotations()
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_selected_boxes()
+        elif event.key() == Qt.Key.Key_Escape:
+            # Cancel current polygon drawing
+            if hasattr(self.scene, 'cancel_polygon'):
+                self.scene.cancel_polygon()
+        elif event.key() == Qt.Key.Key_B:
+            # Switch to bounding box mode
+            self.bbox_radio.setChecked(True)
+            self.change_drawing_mode(self.bbox_radio)
+        elif event.key() == Qt.Key.Key_G:
+            # Switch to polygon mode
+            self.polygon_radio.setChecked(True)
+            self.change_drawing_mode(self.polygon_radio)
         else:
             super().keyPressEvent(event)
 
@@ -630,7 +900,22 @@ class ImageLabelingApp(QMainWindow):
 
                 # Only add if the box has valid dimensions
                 if width > 0 and height > 0:
-                    ann_list.append((item.class_id, x_center, y_center, width, height))
+                    ann_list.append(('bbox', item.class_id, x_center, y_center, width, height))
+
+            elif isinstance(item, ResizablePolygonItem):
+                polygon = item.polygon()
+                if len(polygon) < 3:
+                    continue
+
+                # Convert polygon points to normalized coordinates
+                normalized_points = []
+                for point in polygon:
+                    norm_x = max(0.0, min(1.0, point.x() / img_width))
+                    norm_y = max(0.0, min(1.0, point.y() / img_height))
+                    normalized_points.extend([norm_x, norm_y])
+
+                if len(normalized_points) >= 6:  # At least 3 points (6 coordinates)
+                    ann_list.append(('polygon', item.class_id, *normalized_points))
 
         self.annotations[image_path] = ann_list
 
@@ -689,8 +974,24 @@ class ImageLabelingApp(QMainWindow):
             ann_list = self.annotations.get(image_path, [])
             # Always create a label file, even if no annotations exist
             with open(txt_file, 'w') as f:
-                for cls_id, x_center, y_center, width, height in ann_list:
-                    f.write(f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+                for ann in ann_list:
+                    if len(ann) < 3:
+                        continue
+
+                    ann_type = ann[0]
+                    class_id = ann[1]
+
+                    if ann_type == 'bbox' and len(ann) == 6:
+                        # Bounding box: class_id x_center y_center width height
+                        _, class_id, x_center, y_center, width, height = ann
+                        f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+
+                    elif ann_type == 'polygon' and len(ann) >= 8:  # type + class_id + at least 6 coordinates (3 points)
+                        # Polygon: class_id x1 y1 x2 y2 x3 y3 ...
+                        coords = ann[2:]  # Skip type and class_id
+                        if len(coords) >= 6 and len(coords) % 2 == 0:  # Must have even number of coordinates
+                            coords_str = ' '.join([f"{coord:.6f}" for coord in coords])
+                            f.write(f"{class_id} {coords_str}\n")
             
             dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
             try:

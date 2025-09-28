@@ -503,6 +503,12 @@ class MainMenu(QMainWindow):
         dashboard_action.triggered.connect(self.open_dashboard)
         extras_menu.addAction(dashboard_action)
 
+        extras_menu.addSeparator()
+
+        crop_action = QAction('Crop for Train', self)
+        crop_action.triggered.connect(self.open_crop_for_train)
+        extras_menu.addAction(crop_action)
+
         # Workflow Status Menu
         status_menu = menubar.addMenu('Status manuell setzen')
 
@@ -691,14 +697,33 @@ class MainMenu(QMainWindow):
         application_section.add_card(detection_card)
         application_section.add_stretch()
 
+        # 5. Extras
+        extras_section = WorkflowSection(
+            "5. Extras",
+            "Zusätzliche Tools und Utilities"
+        )
+
+        crop_for_train_card = ModernCard(
+            "5.1 Crop for Train",
+            "Ausschneiden von Objektbereichen für Segmentation-Training",
+            "crop",
+            "crop_for_train",
+            "available"  # Always available
+        )
+        crop_for_train_card.clicked.connect(self.open_crop_for_train)
+
+        extras_section.add_card(crop_for_train_card)
+        extras_section.add_stretch()
+
         # Sektionen hinzufügen
         layout.addWidget(data_section)
         layout.addWidget(processing_section)
         layout.addWidget(model_section)
         layout.addWidget(application_section)
+        layout.addWidget(extras_section)
         
         # Referenzen speichern
-        self.workflow_sections = [data_section, processing_section, model_section, application_section]
+        self.workflow_sections = [data_section, processing_section, model_section, application_section, extras_section]
     
     def get_card_status(self, step):
         """Ermittelt Status einer Karte"""
@@ -907,8 +932,7 @@ class MainMenu(QMainWindow):
         """Öffnet Training-Window mit Projekt-Kontext"""
         if 'training' not in self.windows:
             from gui.training.settings_window import TrainSettingsWindow
-            app = TrainSettingsWindow()
-            app.project_manager = self.project_manager
+            app = TrainSettingsWindow(project_manager=self.project_manager)
             
             # Automatische Pfad-Setzung
             # Store training outputs inside the project's "05_models" directory
@@ -965,6 +989,37 @@ class MainMenu(QMainWindow):
         
         self.windows['verification'].show()
     
+    def open_crop_for_train(self):
+        """Öffnet Crop-for-Train App (Extras - ohne Workflow-Abhängigkeiten)"""
+        if 'crop_for_train' not in self.windows:
+            from gui.crop_for_train_app import CropForTrainApp
+            app = CropForTrainApp()
+
+            # Set default paths if available in project (optional)
+            if hasattr(self, 'project_manager') and self.project_manager:
+                # Try to find a trained detection model in the models directory
+                models_dir = self.project_manager.get_models_dir()
+                for model_file in models_dir.glob("*/weights/best.pt"):
+                    app.model_path.setText(str(model_file))
+                    break
+
+                # Set source to augmented images directory (if exists)
+                augmented_dir = self.project_manager.get_augmented_dir()
+                if augmented_dir.exists():
+                    app.source_path.setText(str(augmented_dir))
+
+                # Set output to a new crops directory in project
+                crops_dir = self.project_manager.project_root / "08_crops_for_segmentation"
+                crops_dir.mkdir(exist_ok=True)
+                app.output_path.setText(str(crops_dir))
+
+            self.windows['crop_for_train'] = app
+            app.show()
+        else:
+            self.windows['crop_for_train'].show()
+            self.windows['crop_for_train'].raise_()
+            self.windows['crop_for_train'].activateWindow()
+
     def open_detection(self):
         """Startet die Tkinter-basierte Live-Detection"""
         if self.detection_process is None or self.detection_process.poll() is not None:

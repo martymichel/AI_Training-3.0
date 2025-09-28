@@ -143,15 +143,17 @@ class DatasetSplitter:
 
     def create_dataset_files(self, output_dir, split_dirs, split_data):
         """Create YOLO dataset files (train.txt, val.txt, data.yaml)."""
-        # Create train.txt and val.txt
+        # Create train.txt and val.txt with consistent forward slashes
         for split_name in ['train', 'val']:
             txt_path = os.path.join(output_dir, f"{split_name}.txt")
             with open(txt_path, 'w') as f:
                 for img_path, _ in split_data[split_name]:
-                    f.write(str(os.path.join(
+                    # Ensure consistent forward slashes in image paths
+                    full_path = os.path.join(
                         split_dirs[split_name]['images'],
                         img_path.name
-                    )) + '\n')
+                    ).replace('\\', '/')
+                    f.write(full_path + '\n')
 
         # Create data.yaml with consistent forward slashes for cross-platform compatibility
         yaml_content = {
