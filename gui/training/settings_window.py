@@ -849,7 +849,8 @@ class TrainSettingsWindow(QMainWindow):
             mask_ratio=mask_ratio,
             project=project,
             experiment=experiment,
-            model_path=model_path
+            model_path=model_path,
+            model_type=model_type
         )
 
     def stop_training(self):

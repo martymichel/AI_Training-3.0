@@ -315,25 +315,25 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
 
 def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr, close_mosaic,
                    momentum, warmup_epochs, warmup_momentum, box, dropout, copy_paste, mask_ratio,
-                   project, name, model_path="yolo11n.pt", progress_callback=None, log_callback=None):
-    """Start YOLO training with automatic detection/segmentation selection."""
+                   project, name, model_path="yolo11n.pt", model_type="detection", progress_callback=None, log_callback=None):
+    """Start YOLO training with explicit model type selection."""
     try:
-        # Determine if this is a segmentation model
-        is_segmentation = 'seg' in model_path.lower()
+        # Use explicit model type instead of automatic detection
+        is_segmentation = model_type.lower() == "segmentation"
         
         if is_segmentation:
-            logger.info("Detected segmentation model, using segmentation training pipeline")
+            logger.info("Using segmentation training pipeline")
             if log_callback:
-                log_callback("Segmentation model detected - using optimized segmentation training")
+                log_callback("Segmentation training pipeline selected")
             return start_segmentation_training(
                 data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr,
                 close_mosaic, momentum, warmup_epochs, warmup_momentum, box, dropout,
                 copy_paste, mask_ratio, project, name, model_path, progress_callback, log_callback
             )
         else:
-            logger.info("Detected detection model, using detection training pipeline")
+            logger.info("Using detection training pipeline")
             if log_callback:
-                log_callback("Detection model detected - using optimized detection training")
+                log_callback("Detection training pipeline selected")
             return start_detection_training(
                 data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr,
                 close_mosaic, momentum, warmup_epochs, warmup_momentum, box, dropout,

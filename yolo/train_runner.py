@@ -23,9 +23,10 @@ def main():
     parser.add_argument("--model", default="yolo11n.pt")
     parser.add_argument("--copy_paste", type=float, default=0.0)
     parser.add_argument("--mask_ratio", type=int, default=4)
+    parser.add_argument("--model_type", default="detection")
     args = parser.parse_args()
 
-    # Use the unified training function which automatically selects the right pipeline
+    # Use the training function with explicit model type
     from yolo.yolo_train import start_training
     start_training(
         data_path=args.data,
@@ -47,6 +48,7 @@ def main():
         project=args.project,
         name=args.experiment,
         model_path=args.model,
+        model_type=args.model_type,
     )
 
 
