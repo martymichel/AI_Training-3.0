@@ -1,4 +1,4 @@
-"""Main application module for image augmentation."""
+"""Main application module for image augmentation with full polygon support."""
 
 import os
 import logging
@@ -29,11 +29,11 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 class ImageAugmentationApp(QMainWindow):
-    """Main window for the image augmentation application."""
+    """Main window for the image augmentation application with polygon support."""
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Image Augmentation Tool")
+        self.setWindowTitle("Image Augmentation Tool - Polygon & Bounding Box Support")
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
         # Central widget and layout
@@ -106,6 +106,7 @@ class ImageAugmentationApp(QMainWindow):
         # Analyze dataset format when source path is set
         if hasattr(self, 'source_path') and self.source_path:
             self.analyze_and_show_dataset_format()
+    
     def create_left_panel(self):
         """Create and return the left panel with settings and controls."""
         left_panel = QWidget()
@@ -299,13 +300,13 @@ class ImageAugmentationApp(QMainWindow):
                 format_text += f" (✅ {bbox_count} Boxes)"
             
             current_text = self.count_info.text()
-        lines = current_text.split('\n')
-        if len(lines) >= 2:
-            new_text = f"{lines[0]}\n{lines[1]}\n{format_text}"
-        else:
-            new_text = f"{current_text}\n{format_text}"
-        
-        self.count_info.setText(new_text)
+            lines = current_text.split('\n')
+            if len(lines) >= 2:
+                new_text = f"{lines[0]}\n{lines[1]}\n{format_text}"
+            else:
+                new_text = f"{current_text}\n{format_text}"
+            
+            self.count_info.setText(new_text)
                 
         except Exception as e:
             logger.error(f"Error analyzing dataset format: {e}")
@@ -333,7 +334,8 @@ class ImageAugmentationApp(QMainWindow):
             # Update preview when methods change
             self.update_preview()
         except Exception as e:
-            logger.error(f"Error analyzing dataset format: {e}")
+            logger.error(f"Error updating expected count: {e}")
+
     def show_settings(self):
         """Show settings dialog."""
         dialog = SettingsDialog(self.settings, self)
@@ -359,7 +361,6 @@ class ImageAugmentationApp(QMainWindow):
         if path:
             self.dest_path = path
             self.dest_label.setText(f"Zielverzeichnis: {path}")
-            logger.error(f"Error updating expected count: {e}")
 
     def update_preview(self):
         """Schedule an update to the preview images."""
@@ -467,66 +468,3 @@ class ImageAugmentationApp(QMainWindow):
             self.close()
         except Exception as e:
             logger.error(f"Failed to open label checker: {e}")
-
-
-# ==================== AUGMENTATION APP INTEGRATION ====================
-
-"""
-Ergänzungen für gui/augmentation_app.py
-"""
-
-class AugmentationAppExtensions:
-    """Erweiterungen für die Augmentation App"""
-    
-    def save_settings_to_project(self):
-        """Speichert Augmentation-Settings ins Projekt"""
-        if hasattr(self, 'project_manager') and self.project_manager:
-            # Aktuelle Settings sammeln
-            settings = {
-                'methods': {},
-                'flip_settings': {
-                    'horizontal': self.horizontal_flip.isChecked(),
-                    'vertical': self.vertical_flip.isChecked()
-                }
-            }
-            
-            # Method-Settings sammeln
-            for method in self.methods:
-                from gui.augmentation_common import get_method_key
-                method_key = get_method_key(method)
-                if method_key in self.method_levels:
-                    checkbox, level1_spin, level2_spin = self.method_levels[method_key]
-                    settings['methods'][method_key] = {
-                        'enabled': checkbox.isChecked(),
-                        'level1': level1_spin.value(),
-                        'level2': level2_spin.value()
-                    }
-            
-            self.project_manager.update_augmentation_settings(settings)
-    
-    def load_settings_from_project(self):
-        """Lädt Augmentation-Settings aus dem Projekt"""
-        if hasattr(self, 'project_manager') and self.project_manager:
-            settings = self.project_manager.get_augmentation_settings()
-            
-            if 'methods' in settings:
-                for method_key, method_settings in settings['methods'].items():
-                    if method_key in self.method_levels:
-                        checkbox, level1_spin, level2_spin = self.method_levels[method_key]
-                        checkbox.setChecked(method_settings.get('enabled', False))
-                        level1_spin.setValue(method_settings.get('level1', 2))
-                        level2_spin.setValue(method_settings.get('level2', 10))
-            
-            if 'flip_settings' in settings:
-                flip_settings = settings['flip_settings']
-                self.horizontal_flip.setChecked(flip_settings.get('horizontal', False))
-                self.vertical_flip.setChecked(flip_settings.get('vertical', False))
-    
-    def complete_augmentation_with_project_integration(self):
-        """Erweiterte Augmentation-Completion mit Projekt-Integration"""
-        # Settings speichern
-        self.save_settings_to_project()
-        
-        # Workflow-Schritt markieren
-        if hasattr(self, 'project_manager') and self.project_manager:
-            self.project_manager.mark_step_completed(WorkflowStep.AUGMENTATION)
