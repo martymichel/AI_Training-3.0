@@ -13,6 +13,261 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+def detect_annotation_format(boxes):
+    """Detect if annotations are bounding boxes or polygons.
+    
+    Args:
+        boxes (list): List of annotation boxes
+        
+    Returns:
+        str: 'bbox', 'polygon', or 'mixed'
+    """
+    if not boxes:
+        return 'unknown'
+    
+    bbox_count = 0
+    polygon_count = 0
+    
+    for box in boxes:
+        if len(box) == 5:
+            bbox_count += 1
+        elif len(box) >= 7 and (len(box) - 1) % 2 == 0:
+            polygon_count += 1
+    
+    if bbox_count > 0 and polygon_count > 0:
+        return 'mixed'
+    elif polygon_count > 0:
+        return 'polygon'
+    elif bbox_count > 0:
+        return 'bbox'
+    else:
+        return 'unknown'
+
+def parse_polygon_annotations(boxes):
+    """Parse polygon annotations into keypoints for Albumentations.
+    
+    Args:
+        boxes (list): List of polygon annotations [class_id, x1, y1, x2, y2, ...]
+        
+    Returns:
+        tuple: (keypoints_list, class_ids)
+    """
+    keypoints_list = []
+    class_ids = []
+    
+    for box in boxes:
+        if len(box) >= 7 and (len(box) - 1) % 2 == 0:
+            class_ids.append(int(box[0]))
+            # Extract coordinate pairs
+            coords = box[1:]
+            keypoints = []
+            for i in range(0, len(coords), 2):
+                if i + 1 < len(coords):
+                    x = float(coords[i])
+                    y = float(coords[i + 1])
+                    # Ensure coordinates are normalized (0-1)
+                    x = x if x <= 1.0 else x / 1000.0
+                    y = y if y <= 1.0 else y / 1000.0
+                    keypoints.extend([x, y])
+            keypoints_list.append(keypoints)
+    
+    return keypoints_list, class_ids
+
+def convert_keypoints_to_polygons(keypoints_list, class_ids):
+    """Convert augmented keypoints back to polygon format.
+    
+    Args:
+        keypoints_list (list): List of augmented keypoints
+        class_ids (list): Corresponding class IDs
+        
+    Returns:
+        list: Polygons in YOLO format [class_id, x1, y1, x2, y2, ...]
+    """
+    result_polygons = []
+    
+    for keypoints, class_id in zip(keypoints_list, class_ids):
+        if len(keypoints) >= 6:  # At least 3 points (6 coordinates)
+            # Filter out invalid keypoints (outside 0-1 range)
+            valid_coords = []
+            for i in range(0, len(keypoints), 2):
+                if i + 1 < len(keypoints):
+                    x, y = keypoints[i], keypoints[i + 1]
+                    # Keep points that are mostly within bounds (allow small overflow)
+                    if -0.1 <= x <= 1.1 and -0.1 <= y <= 1.1:
+                        # Clamp to valid range
+                        x = max(0.0, min(1.0, x))
+                        y = max(0.0, min(1.0, y))
+                        valid_coords.extend([x, y])
+            
+            # Only keep polygon if we have at least 3 valid points
+            if len(valid_coords) >= 6:
+                polygon = [int(class_id)] + valid_coords
+                result_polygons.append(polygon)
+    
+    return result_polygons
+
+def augment_image_with_polygons(image, polygons, method, level1, level2, min_visibility=0.3, min_size=20):
+    """
+    Augment image with polygon annotations using Albumentations keypoints.
+    
+    Args:
+        image: Input image (numpy array)
+        polygons: List of polygon annotations [class_id, x1, y1, x2, y2, ...]
+        method: Augmentation method
+        level1, level2: Augmentation parameters
+        min_visibility: Minimum visibility threshold (not used for polygons)
+        min_size: Minimum size threshold
+        
+    Returns:
+        tuple: (augmented_image, augmented_polygons)
+    """
+    if image is None:
+        logger.error("Invalid image for polygon augmentation")
+        return None, []
+    
+    try:
+        height, width = image.shape[:2]
+        if height <= 0 or width <= 0:
+            logger.error("Invalid image dimensions")
+            return None, []
+
+        # Parse polygons into keypoints format
+        keypoints_list, class_ids = parse_polygon_annotations(polygons)
+        
+        if not keypoints_list and polygons:
+            logger.warning("No valid polygon annotations found")
+            return image, polygons
+
+        # Create transform based on method
+        transforms = []
+        
+        if method == "Rotate":
+            rotate_angle = np.random.uniform(level1, level2)
+            transforms.append(Rotate(
+                limit=(rotate_angle, rotate_angle), 
+                p=1.0, 
+                border_mode=cv2.BORDER_REFLECT_101
+            ))
+            
+        elif method == "Zoom" or method == "Scale":
+            scale_percent = np.random.uniform(level1, level2)
+            scale_factor = 1.0 + scale_percent / 100.0
+            scale_factor = max(0.1, min(scale_factor, 3.0))
+            transforms.append(RandomScale(
+                scale_limit=(scale_factor - 1, scale_factor - 1),
+                p=1.0,
+                interpolation=cv2.INTER_LINEAR,
+                border_mode=cv2.BORDER_REFLECT_101
+            ))
+            
+        elif method == "HorizontalFlip":
+            transforms.append(HorizontalFlip(p=1.0))
+            
+        elif method == "VerticalFlip":
+            transforms.append(VerticalFlip(p=1.0))
+            
+        elif method == "Brightness":
+            brightness_change = np.random.uniform(level1/100, level2/100)
+            if np.random.random() < 0.5:
+                brightness_change = -brightness_change
+            transforms.append(RandomBrightnessContrast(
+                brightness_limit=brightness_change,
+                contrast_limit=brightness_change,
+                p=1.0
+            ))
+            
+        elif method == "Blur":
+            blur_limit = int(np.random.uniform(level1, level2))
+            if blur_limit > 0:
+                transforms.append(Blur(
+                    blur_limit=(blur_limit, blur_limit*2+1),
+                    p=1.0
+                ))
+                
+        elif method == "HSV":
+            hsv_shift = np.random.uniform(level1, level2)
+            transforms.append(HueSaturationValue(
+                hue_shift_limit=hsv_shift,
+                sat_shift_limit=hsv_shift,
+                val_shift_limit=0,
+                p=1.0
+            ))
+            
+        elif method == "Shift":
+            shift_limit = np.random.uniform(level1 / 100, level2 / 100)
+            shift_x = shift_limit * (1 if np.random.random() < 0.5 else -1)
+            shift_y = shift_limit * (1 if np.random.random() < 0.5 else -1)
+            transforms.append(ShiftScaleRotate(
+                shift_limit_x=(shift_x, shift_x),
+                shift_limit_y=(shift_y, shift_y),
+                scale_limit=0,
+                rotate_limit=0,
+                border_mode=cv2.BORDER_REFLECT_101,
+                p=1.0
+            ))
+            
+        elif method == "Distortion":
+            distort_limit = np.random.uniform(level1, level2)
+            if distort_limit > 0:
+                transforms.append(OpticalDistortion(
+                    distort_limit=distort_limit,
+                    p=1.0,
+                    border_mode=cv2.BORDER_REFLECT_101
+                ))
+        else:
+            logger.warning(f"Unknown augmentation method: {method}")
+            return image, polygons
+
+        if not transforms:
+            return image, polygons
+
+        # Create compose transform with keypoints format for polygons
+        transform = Compose(
+            transforms, 
+            keypoint_params={'format': 'xy', 'remove_invisible': True}
+        )
+
+        try:
+            # Apply transformation to each polygon separately
+            augmented_polygons = []
+            
+            for keypoints, class_id in zip(keypoints_list, class_ids):
+                # Convert keypoints to list of (x, y) tuples
+                keypoint_pairs = []
+                for i in range(0, len(keypoints), 2):
+                    if i + 1 < len(keypoints):
+                        keypoint_pairs.append((keypoints[i], keypoints[i + 1]))
+                
+                # Apply transformation
+                augmented = transform(
+                    image=image,
+                    keypoints=keypoint_pairs
+                )
+                
+                aug_image = augmented['image']
+                aug_keypoints = augmented['keypoints']
+                
+                # Convert back to flat coordinate list
+                if aug_keypoints:
+                    flat_coords = []
+                    for x, y in aug_keypoints:
+                        flat_coords.extend([x, y])
+                    
+                    # Only keep if we have at least 3 points
+                    if len(flat_coords) >= 6:
+                        polygon = [int(class_id)] + flat_coords
+                        augmented_polygons.append(polygon)
+            
+            return aug_image, augmented_polygons
+            
+        except Exception as e:
+            logger.error(f"Error during polygon transformation {method}: {str(e)}")
+            return image, polygons
+
+    except Exception as e:
+        logger.error(f"Error in polygon augmentation: {e}")
+        return None, []
+
 def is_valid_image(image_path):
     """
     Validate if the image file is valid and can be opened.
@@ -104,18 +359,36 @@ def convert_to_yolo_format(augmented_bboxes, augmented_class_ids):
 def augment_image_with_boxes(image, boxes, method, level1, level2, min_visibility=0.3, min_size=20):
     """
     Augmentiert ein Bild mit zugehörigen Bounding Boxes unter Verwendung von Albumentations.
-    Basiert auf dem funktionierenden Code aus annotation_DEV.py.
+    Updated to handle both bounding boxes and polygons automatically.
     
     Args:
         image: Input image (numpy array)
-        boxes: List of YOLO format boxes [class_id, x_center, y_center, width, height]
+        boxes: List of YOLO format boxes OR polygons
         method: Augmentation method
         level1, level2: Augmentation parameters
-        min_visibility: Minimum visibility threshold
-        min_size: Minimum size threshold
+        min_visibility: Minimum required visibility (0-1)
+        min_size: Minimum size in pixels
         
     Returns:
-        tuple: (augmented_image, augmented_boxes)
+        tuple: (augmented_image, augmented_annotations)
+    """
+    # Automatically detect annotation format
+    annotation_format = detect_annotation_format(boxes)
+    
+    if annotation_format == 'polygon':
+        return augment_image_with_polygons(image, boxes, method, level1, level2, min_visibility, min_size)
+    elif annotation_format == 'mixed':
+        logger.warning("Mixed annotation format detected - using only bounding boxes")
+        # Filter to only bounding boxes
+        bbox_only = [box for box in boxes if len(box) == 5]
+        return augment_image_with_bboxes_only(image, bbox_only, method, level1, level2, min_visibility, min_size)
+    else:
+        # Default to bounding box augmentation
+        return augment_image_with_bboxes_only(image, boxes, method, level1, level2, min_visibility, min_size)
+
+def augment_image_with_bboxes_only(image, boxes, method, level1, level2, min_visibility=0.3, min_size=20):
+    """
+    Original bounding box augmentation function (renamed for clarity).
     """
     if image is None:
         logger.error("Ungültiges Bild")

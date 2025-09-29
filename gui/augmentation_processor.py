@@ -10,12 +10,66 @@ from PyQt6.QtWidgets import QMessageBox, QApplication
 from PyQt6.QtGui import QImage, QPixmap
 from itertools import product
 
-from utils.augmentation_utils import augment_image_with_boxes
+from utils.augmentation_utils import augment_image_with_boxes, detect_annotation_format
 from project_manager import WorkflowStep
 
 
 logger = logging.getLogger(__name__)
 
+def analyze_dataset_format(app):
+    """Analyze dataset to determine annotation format.
+    
+    Returns:
+        tuple: (format, bbox_count, polygon_count, total_files)
+    """
+    if not app.source_path:
+        return 'unknown', 0, 0, 0
+    
+    image_files = list(Path(app.source_path).rglob("*.jpg")) + \
+                 list(Path(app.source_path).rglob("*.png"))
+    
+    if not image_files:
+        return 'unknown', 0, 0, 0
+    
+    bbox_count = 0
+    polygon_count = 0
+    total_files = len(image_files)
+    
+    # Analyze first 20 files for efficiency
+    sample_files = image_files[:20]
+    
+    for image_file in sample_files:
+        label_file = image_file.with_suffix('.txt')
+        if not label_file.exists():
+            continue
+        
+        try:
+            with open(label_file, 'r') as f:
+                lines = f.readlines()
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                parts = line.split()
+                if len(parts) == 5:
+                    bbox_count += 1
+                elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                    polygon_count += 1
+        
+        except Exception as e:
+            logger.warning(f"Error analyzing {label_file}: {e}")
+            continue
+    
+    if bbox_count > 0 and polygon_count > 0:
+        return 'mixed', bbox_count, polygon_count, total_files
+    elif polygon_count > 0:
+        return 'polygon', bbox_count, polygon_count, total_files
+    elif bbox_count > 0:
+        return 'bbox', bbox_count, polygon_count, total_files
+    else:
+        return 'unknown', bbox_count, polygon_count, total_files
 def calculate_augmentation_count(app):
     """Calculate the expected number of output images accurately."""
     if not app.source_path:
@@ -71,6 +125,34 @@ def start_augmentation_process(app):
                               "Bitte wählen Sie Quell- und Zielverzeichnis aus.")
             return
 
+        # Analyze dataset format
+        dataset_format, bbox_count, polygon_count, total_files = analyze_dataset_format(app)
+        
+        if dataset_format == 'mixed':
+            reply = QMessageBox.question(
+                app, "Mixed Dataset erkannt",
+                f"Ihr Dataset enthält sowohl Bounding Boxes ({bbox_count}) als auch Polygone ({polygon_count}).\n\n"
+                f"Für konsistente Augmentation sollten alle Annotationen das gleiche Format haben.\n\n"
+                f"Möchten Sie trotzdem fortfahren?\n"
+                f"(Polygone werden bevorzugt behandelt, Boxes werden ignoriert)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return
+        elif dataset_format == 'polygon':
+            QMessageBox.information(
+                app, "Polygon Dataset",
+                f"Polygon-Dataset erkannt!\n\n"
+                f"Gefunden: {polygon_count} Polygone\n"
+                f"Augmentation unterstützt alle Transformationen für Polygone."
+            )
+        elif dataset_format == 'bbox':
+            QMessageBox.information(
+                app, "Bounding Box Dataset", 
+                f"Bounding Box Dataset erkannt!\n\n"
+                f"Gefunden: {bbox_count} Bounding Boxes\n"
+                f"Augmentation verwendet optimierte Box-Transformationen."
+            )
         # Get selected methods
         selected_methods = []
         for method in app.methods:
@@ -255,14 +337,32 @@ def start_augmentation_process(app):
                 cv2.imwrite(str(output_image_path), augmented_image)
                 
                 with open(output_label_path, 'w') as f:
-                    for box in augmented_boxes:
-                        f.write(' '.join(map(str, box)) + '\n')
+                    for annotation in augmented_boxes:
+                        # Handle both bounding boxes and polygons
+                        if len(annotation) == 5:
+                            # Bounding box format
+                            f.write(' '.join(map(str, annotation)) + '\n')
+                        elif len(annotation) >= 7:
+                            # Polygon format - ensure proper precision
+                            class_id = int(annotation[0])
+                            coords = [f"{coord:.6f}" for coord in annotation[1:]]
+                            f.write(f"{class_id} {' '.join(coords)}\n")
+                        else:
+                            logger.warning(f"Invalid annotation format: {annotation}")
 
                 valid_augmentations += 1
 
         app.progress_bar.setValue(100)
 
         # Show final results
+        format_info = f"\nDataset-Format: {dataset_format.upper()}"
+        if dataset_format == 'mixed':
+            format_info += f"\n⚠️ Mixed Format: {bbox_count} Boxes, {polygon_count} Polygone"
+        elif dataset_format == 'polygon':
+            format_info += f"\n✅ Polygone: {polygon_count} erkannt"
+        elif dataset_format == 'bbox':
+            format_info += f"\n✅ Bounding Boxes: {bbox_count} erkannt"
+        
         QMessageBox.information(
             app,
             "Augmentierung abgeschlossen",
@@ -270,6 +370,7 @@ def start_augmentation_process(app):
             f"Verarbeitet: {len(image_files)} Bilder\n"
             f"Gültige Augmentierungen: {valid_augmentations}\n"
             f"Ungültige Augmentierungen: {invalid_augmentations}"
+            f"{format_info}"
         )
         
         # Return to preview mode if it was on

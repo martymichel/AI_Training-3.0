@@ -103,6 +103,9 @@ class ImageAugmentationApp(QMainWindow):
         # Initialize preview mode
         toggle_preview_mode(self, self.preview_checkbox.isChecked())
 
+        # Analyze dataset format when source path is set
+        if hasattr(self, 'source_path') and self.source_path:
+            self.analyze_and_show_dataset_format()
     def create_left_panel(self):
         """Create and return the left panel with settings and controls."""
         left_panel = QWidget()
@@ -147,18 +150,18 @@ class ImageAugmentationApp(QMainWindow):
         self.dest_path_button.clicked.connect(self.browse_dest)
         left_layout.addLayout(self.dest_layout)
 
-        # Combined count info
-        self.count_info = QLabel("Aktuelle Anzahl Bilder: -\nErwartete Anzahl Bilder: -")
+        # Combined count info with format detection
+        self.count_info = QLabel("Aktuelle Anzahl Bilder: -\nErwartete Anzahl Bilder: -\nDataset-Format: Unbekannt")
         self.count_info.setStyleSheet("""
             font-size: 13px;
             padding: 5px;
             background: rgba(33, 150, 243, 0.1);
             border-radius: 5px;
             margin: 3px;
-            min-height: 40px;   
+            min-height: 60px;   
         """)
         self.count_info.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.count_info.setMaximumHeight(40)
+        self.count_info.setMaximumHeight(60)
         left_layout.addWidget(self.count_info)
 
         # Settings button
@@ -280,6 +283,32 @@ class ImageAugmentationApp(QMainWindow):
         
         return right_panel, stack
 
+    def analyze_and_show_dataset_format(self):
+        """Analyze dataset format and show in UI."""
+        try:
+            from gui.augmentation_processor import analyze_dataset_format
+            dataset_format, bbox_count, polygon_count, total_files = analyze_dataset_format(self)
+            
+            # Update count info with format details
+            format_text = f"Dataset-Format: {dataset_format.upper()}"
+            if dataset_format == 'mixed':
+                format_text += f" (⚠️ {bbox_count} Boxes, {polygon_count} Polygone)"
+            elif dataset_format == 'polygon':
+                format_text += f" (✅ {polygon_count} Polygone)"
+            elif dataset_format == 'bbox':
+                format_text += f" (✅ {bbox_count} Boxes)"
+            
+            current_text = self.count_info.text()
+            lines = current_text.split('\n')
+            if len(lines) >= 2:
+                new_text = f"{lines[0]}\n{lines[1]}\n{format_text}"
+            else:
+                new_text = f"{current_text}\n{format_text}"
+            
+            self.count_info.setText(new_text)
+            
+        except Exception as e:
+            logger.error(f"Error analyzing dataset format: {e}")
     def show_settings(self):
         """Show settings dialog."""
         dialog = SettingsDialog(self.settings, self)
@@ -294,6 +323,7 @@ class ImageAugmentationApp(QMainWindow):
             self.source_path = path
             self.source_label.setText(f"Quellverzeichnis: {path}")
             self.update_expected_count()
+            self.analyze_and_show_dataset_format()
             
             # Load sample image for preview
             load_sample_image(self)
@@ -314,6 +344,12 @@ class ImageAugmentationApp(QMainWindow):
                 f"Aktuelle Anzahl Bilder: {original_count:,}\n"
                 f"Erwartete Anzahl Bilder: {total_count:,}"
             )
+                lines = current_text.split('\n')
+                format_line = next((line for line in lines if "Dataset-Format:" in line), "")
+            
+            if format_line:
+                text += f"\n{format_line}"
+            
             self.count_info.setText(text)
 
             # Update preview when methods change
