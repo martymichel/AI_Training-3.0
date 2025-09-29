@@ -1592,38 +1592,40 @@ class ProjectManager:
             return "unknown"
 
     def get_recommended_model_type(self) -> str:
-        """Empfiehlt Modell-Typ basierend auf Annotation-Typ."""
-        annotation_type = self.detect_annotation_type()
-        labeled_dir = self.get_labeled_dir()
+        """Determine recommended model type based on annotation format in labeled data."""
+        try:
+            labeled_dir = self.get_labeled_dir()
+            if not labeled_dir.exists():
+                return "detection"
             
-        # Sammle alle Label-Dateien
-        label_files = list(labeled_dir.glob("*.txt"))
-        if not label_files:
-            return "detection"  # Default wenn keine Labels vorhanden
-        
-        # Analysiere Format der ersten paar Label-Dateien
-        bbox_count = 0
-        polygon_count = 0
-        
-        for label_file in label_files[:10]:  # Prüfe nur erste 10 Dateien
-            try:
-                with open(label_file, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if not content:
-                        continue
-                        
-                    for line in content.split('\n'):
-                        line = line.strip()
-                        if not line:
-                            continue
-                            
-                        parts = line.split()
-                        if len(parts) == 5:
-                            bbox_count += 1
-                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
-                            polygon_count += 1
-            except Exception:
-                continue
+            label_files = list(labeled_dir.glob("*.txt"))
+            if not label_files:
+                return "detection"
+            
+            # Check first few label files for format
+            has_polygons = False
+            for label_file in label_files[:5]:  # Check first 5 files
+                try:
+                    with open(label_file, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                parts = line.split()
+                                if len(parts) > 5:  # More than 5 = likely polygon
+                                    # Verify it's actually polygon format (even number of coords after class)
+                                    coords = parts[1:]  # Skip class ID
+                                    if len(coords) >= 6 and len(coords) % 2 == 0:
+                                        has_polygons = True
+                                        break
+                                break  # Only check first annotation per file
+                    if has_polygons:
+                        break
+                except Exception:
+                    continue
+            
+            return "segmentation" if has_polygons else "detection"
+        except Exception:
+            return "detection"
             finally:
                 if bbox_count > 0 and polygon_count > 0:
                     break  # Früh beenden wenn beide Typen gefunden
