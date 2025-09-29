@@ -1,1273 +1,757 @@
-"""Main window for YOLO training with integrated dashboard."""
+"""Training settings window with project management integration."""
 
+import sys
 import os
+import pandas as pd
 import logging
 from pathlib import Path
+from datetime import datetime
+
 from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QSplitter,
-    QFrame,
-    QProgressBar,
-    QLabel,
-    QPushButton,
-    QHBoxLayout,
-    QMessageBox,
-    QLineEdit,
-    QSpinBox,
-    QDoubleSpinBox,
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QGroupBox,
-    QScrollArea,
-    QGridLayout,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QPushButton, QFileDialog, QProgressBar, QMessageBox,
+    QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox, QLineEdit,
+    QTextEdit, QTabWidget, QGroupBox, QFormLayout, QSplitter
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
-from config import Config
-from utils.validation import validate_yaml, validate_yaml_for_model_type, check_gpu
-from gui.training.dashboard_view import create_dashboard_tabs
-from gui.training.training_thread import (
-    TrainingSignals,
-    start_training_thread,
-    stop_training,
-)
+from gui.training.training_thread import TrainingSignals, start_training_thread, stop_training
+from gui.training.dashboard_view import create_dashboard_tabs, update_dashboard_plots
+from gui.training.training_utils import check_and_load_results_csv
 from gui.training.parameter_info import ParameterInfoButton
-from project_manager import ProjectManager, WorkflowStep
+from utils.validation import validate_yaml_for_model_type, check_gpu
+from project_manager import WorkflowStep
 
 # Configure logging
-logger = logging.getLogger("training_gui")
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-logger.addHandler(ch)
-
+logger = logging.getLogger(__name__)
 
 class TrainSettingsWindow(QMainWindow):
-    """Main window for YOLO training with integrated dashboard."""
-
+    """Main training settings window with integrated dashboard."""
+    
     def __init__(self, project_manager=None):
         super().__init__()
-        self.training_active = False
         self.project_manager = project_manager
-        self.setWindowTitle("YOLO Training Advanced")
+        self.setWindowTitle("YOLO Training Settings")
+        self.setGeometry(100, 100, 1400, 900)
         self.setWindowState(Qt.WindowState.WindowMaximized)
-
-        # Initialize from config
-        self.project = Config.training.project_dir
-        self.experiment = Config.training.experiment_name
-
-        # Initialize last checked time for results.csv
-        self.last_results_check = 0
-        self.results_check_timer = QTimer()
-        self.results_check_timer.setInterval(2000)  # Check every 2 seconds
-        self.results_check_timer.timeout.connect(self.check_results_csv)
-
-        # Initialize UI elements to None (will be created in init_ui)
-        self.model_type_input = None
-        self.model_input = None
-        self.multi_scale_label = None
-        self.multi_scale_input = None
-        self.multi_scale_info = None
-        self.copy_paste_label = None
-        self.copy_paste_input = None
-        self.copy_paste_info = None
-        self.mask_ratio_label = None
-        self.mask_ratio_input = None
-        self.mask_ratio_info = None
-
-        # Initialize training signals
-        self.signals = TrainingSignals()
-        self.signals.progress_updated.connect(self.update_progress)
-        self.signals.log_updated.connect(self.update_log)
-        self.signals.results_updated.connect(self.update_dashboard)
-
-        # Initialize UI
-        self.init_ui()
         
-        # Initialize model settings after UI is created
-        self.initialize_model_settings()
+        # Training state
+        self.training_active = False
+        self.training_thread = None
+        self.signals = TrainingSignals()
+        
+        # Results monitoring
+        self.last_check_time = 0
+        self.results_timer = QTimer()
+        self.results_timer.timeout.connect(self.check_for_results_update)
+        self.results_timer.start(5000)  # Check every 5 seconds
+        
+        # Selected model path for continual training
+        self.selected_model_path = None
+        
+        self.init_ui()
+        self.connect_signals()
+        self.check_gpu_status()
+        
+        # Initialize model options AFTER UI is fully created
+        self.update_model_options()
+        
+        # Load project-specific settings if available
+        if self.project_manager:
+            self.load_project_settings()
 
     def init_ui(self):
-        """Initialize the complete user interface."""
-        # Create main layout
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QHBoxLayout(self.central_widget)
-
-        # Create splitter for resizable panels
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_layout.addWidget(self.splitter)
-
-        # Left panel (settings)
-        self.create_settings_panel()
-
-        # Right panel (dashboard/log)
-        self.create_dashboard_panel()
-
-        # Add panels to splitter
-        self.splitter.addWidget(self.settings_panel)
-        self.splitter.addWidget(self.dashboard_panel)
-
-        # Set initial sizes
-        self.splitter.setSizes([400, 800])
+        """Initialize the user interface."""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main splitter
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.addWidget(main_splitter)
+        
+        # Settings panel (left side)
+        settings_panel = self.create_settings_panel()
+        main_splitter.addWidget(settings_panel)
+        
+        # Dashboard panel (right side)
+        self.tabs, self.figure, self.canvas, self.log_text = create_dashboard_tabs(self)
+        main_splitter.addWidget(self.tabs)
+        
+        # Set initial splitter sizes
+        main_splitter.setSizes([400, 1000])
 
     def create_settings_panel(self):
-        """Create the settings panel with all controls."""
-        self.settings_panel = QWidget()
-        self.settings_panel.setStyleSheet("""
+        """Create the settings configuration panel."""
+        panel = QWidget()
+        panel.setFixedWidth(400)
+        panel.setStyleSheet("""
             QWidget {
-                background-color: #f7f9fc;
-                color: #2d3748;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-            QLabel {
-                color: #2d3748;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                background-color: #f8f9fa;
+                border-right: 1px solid #dee2e6;
             }
             QGroupBox {
-                font-family: 'Segoe UI', Arial, sans-serif;
                 font-weight: bold;
-                color: #2d3748;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                margin-top: 14px;
-                padding-top: 8px;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
-                padding: 0 3px;
-                color: #4a5568;
+                padding: 0 5px 0 5px;
+                color: #495057;
             }
             QPushButton {
-                background-color: #3498db;
+                background-color: #007bff;
                 color: white;
                 border: none;
-                border-radius: 4px;
+                border-radius: 6px;
                 padding: 8px 16px;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: 600;
+                margin: 2px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #0056b3;
             }
             QPushButton:disabled {
-                background-color: #bdc3c7;
+                background-color: #6c757d;
+                color: #dee2e6;
             }
-            QLineEdit, QSpinBox, QDoubleSpinBox {
-                border: 1px solid #cbd5e0;
-                border-radius: 4px;
-                padding: 5px;
+            QLabel {
+                color: #495057;
+                padding: 2px;
+            }
+            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
                 background-color: white;
-                color: #2d3748;
+                border: 2px solid #ced4da;
+                border-radius: 4px;
+                padding: 6px;
+                color: #495057;
             }
-            QCheckBox {
-                font-family: 'Segoe UI', Arial, sans-serif;
-                color: #2d3748;
+            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border-color: #007bff;
             }
         """)
         
-        self.settings_layout = QVBoxLayout(self.settings_panel)
-
-        # Create scroll area for settings
-        settings_scroll = QScrollArea()
-        settings_scroll.setWidgetResizable(True)
-        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        settings_scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #f0f2f5;
-                width: 8px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #cbd5e0;
-                min-height: 30px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #a0aec0;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(15)
         
-        settings_content = QWidget()
-        settings_content_layout = QVBoxLayout(settings_content)
-        settings_content_layout.setSpacing(10)
-        settings_scroll.setWidget(settings_content)
+        # Basic Settings Group
+        basic_group = QGroupBox("Basic Settings")
+        basic_layout = QFormLayout()
         
-        # Add title to settings panel
-        settings_title = QLabel("Training Configuration")
-        settings_title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        settings_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        settings_title.setMaximumHeight(30)
-        settings_title.setStyleSheet("margin-bottom: 5px; color: #2d3748;")
-        settings_content_layout.addWidget(settings_title)
-        
-        # Create project settings group
-        self.create_project_settings_group(settings_content_layout)
-        
-        # Create basic training parameters group
-        self.create_basic_training_group(settings_content_layout)
-        
-        # Create advanced parameters group
-        self.create_advanced_training_group(settings_content_layout)
-        
-        # Create progress and control section
-        self.create_progress_control_section(settings_content_layout)
-        
-        # Add scroll area to settings panel
-        self.settings_layout.addWidget(settings_scroll)
-
-    def create_project_settings_group(self, parent_layout):
-        """Create project settings UI group."""
-        group_frame = QGroupBox("Project Settings")
-        group_layout = QGridLayout(group_frame)
-        group_layout.setVerticalSpacing(6)
-        
-        row = 0
         # Project directory
-        group_layout.addWidget(QLabel("Projekt-Verzeichnis:"), row, 0)
+        project_layout = QHBoxLayout()
         self.project_input = QLineEdit()
-        self.project_input.setPlaceholderText("z.B. yolo_training_results")
-        self.project_input.setText(Config.training.project_dir)
-        group_layout.addWidget(self.project_input, row, 1)
+        self.project_input.setPlaceholderText("Training will be saved here...")
+        project_browse = QPushButton("Browse")
+        project_browse.clicked.connect(self.browse_project)
+        project_layout.addWidget(self.project_input)
+        project_layout.addWidget(project_browse)
+        basic_layout.addRow("Project Directory:", project_layout)
         
-        self.project_browse = QPushButton("...")
-        self.project_browse.setMaximumWidth(40)
-        self.project_browse.clicked.connect(self.browse_project)
-        group_layout.addWidget(self.project_browse, row, 2)
-        
-        info_button = ParameterInfoButton(
-            "Das Projekt-Verzeichnis bestimmt, wo die Trainingsergebnisse gespeichert werden."
-        )
-        group_layout.addWidget(info_button, row, 3)
-        
-        row += 1
         # Experiment name
-        group_layout.addWidget(QLabel("Experiment-Name:"), row, 0)
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("z.B. experiment_v1")
-        group_layout.addWidget(self.name_input, row, 1)
+        self.name_input.setPlaceholderText("e.g., experiment_001")
+        basic_layout.addRow("Experiment Name:", self.name_input)
         
-        info_button = ParameterInfoButton(
-            "Der Experiment-Name identifiziert das aktuelle Training."
-        )
-        group_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Data path
-        group_layout.addWidget(QLabel("Datenpfad (YAML):"), row, 0)
+        # Data YAML file
+        data_layout = QHBoxLayout()
         self.data_input = QLineEdit()
-        group_layout.addWidget(self.data_input, row, 1)
+        self.data_input.setPlaceholderText("Path to data.yaml file...")
+        data_browse = QPushButton("Browse")
+        data_browse.clicked.connect(self.browse_data)
+        data_layout.addWidget(self.data_input)
+        data_layout.addWidget(data_browse)
+        basic_layout.addRow("Dataset YAML:", data_layout)
         
-        self.data_browse = QPushButton("...")
-        self.data_browse.setMaximumWidth(40)
-        self.data_browse.clicked.connect(self.browse_data)
-        group_layout.addWidget(self.data_browse, row, 2)
+        basic_group.setLayout(basic_layout)
+        layout.addWidget(basic_group)
         
-        info_button = ParameterInfoButton(
-            "YAML-Datei mit Datensatz-Konfiguration aus dem Dataset-Splitter."
-        )
-        group_layout.addWidget(info_button, row, 3)
-
-        row += 1
-        # Model Type Selection
-        group_layout.addWidget(QLabel("Model-Typ:"), row, 0)
+        # Model Settings Group
+        model_group = QGroupBox("Model Configuration")
+        model_layout = QFormLayout()
+        
+        # Model Type
         self.model_type_input = QComboBox()
-        self.model_type_input.addItems(["Detection", "Segmentation"])
-        group_layout.addWidget(self.model_type_input, row, 1)
-
-        info_button = ParameterInfoButton(
-            "Detection: Für Bounding-Box Annotationen\nSegmentation: Für Polygon/Mask Annotationen"
-        )
-        group_layout.addWidget(info_button, row, 3)
-
-        row += 1
-        # Model Selection
-        group_layout.addWidget(QLabel("Modell:"), row, 0)
+        self.model_type_input.addItems(["Detection", "Segmentation", "Nachtraining"])
+        self.model_type_input.currentTextChanged.connect(self.update_model_options)
+        model_layout.addRow("Model Type:", self.model_type_input)
+        
+        # Model Selection Container
+        self.model_container = QWidget()
+        self.model_container_layout = QVBoxLayout(self.model_container)
+        self.model_container_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Model dropdown (default)
+        self.model_dropdown_widget = QWidget()
+        dropdown_layout = QHBoxLayout(self.model_dropdown_widget)
+        dropdown_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.model_input = QComboBox()
-        self.model_input.setEditable(True)
-        group_layout.addWidget(self.model_input, row, 1)
-
-        info_button = ParameterInfoButton(
-            "Vorgefertigte YOLO-Modelle oder eigener Modellpfad."
-        )
-        group_layout.addWidget(info_button, row, 3)
+        self.model_input.setMinimumWidth(200)
+        dropdown_layout.addWidget(self.model_input)
+        dropdown_layout.addStretch()
         
-        parent_layout.addWidget(group_frame)
-
-    def create_basic_training_group(self, parent_layout):
-        """Create basic training parameters group."""
-        training_group = QGroupBox("Basic Training Parameters")
-        training_layout = QGridLayout(training_group)
-        training_layout.setVerticalSpacing(6)
+        # Model file browser (for continual training)
+        self.model_browse_widget = QWidget()
+        browse_layout = QHBoxLayout(self.model_browse_widget)
+        browse_layout.setContentsMargins(0, 0, 0, 0)
         
-        row = 0
+        self.model_path_display = QLineEdit()
+        self.model_path_display.setPlaceholderText("No model selected...")
+        self.model_path_display.setReadOnly(True)
+        self.model_browse_button = QPushButton("Browse Model...")
+        self.model_browse_button.clicked.connect(self.browse_model_file)
+        
+        browse_layout.addWidget(self.model_path_display)
+        browse_layout.addWidget(self.model_browse_button)
+        
+        # Add both widgets to container
+        self.model_container_layout.addWidget(self.model_dropdown_widget)
+        self.model_container_layout.addWidget(self.model_browse_widget)
+        
+        # Initially hide browse widget
+        self.model_browse_widget.hide()
+        
+        model_layout.addRow("Model:", self.model_container)
+        model_group.setLayout(model_layout)
+        layout.addWidget(model_group)
+        
+        # Training Parameters Group
+        params_group = QGroupBox("Training Parameters")
+        params_layout = QFormLayout()
+        
         # Epochs
-        training_layout.addWidget(QLabel("Anzahl Epochen:"), row, 0)
+        epochs_layout = QHBoxLayout()
         self.epochs_input = QSpinBox()
-        self.epochs_input.setRange(5, 500)
-        self.epochs_input.setValue(Config.training.epochs)
-        training_layout.addWidget(self.epochs_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Anzahl der vollständigen Durchläufe durch den Trainingsdatensatz."
+        self.epochs_input.setRange(1, 1000)
+        self.epochs_input.setValue(100)
+        epochs_info = ParameterInfoButton(
+            "Number of complete passes through the training dataset.\n"
+            "More epochs = longer training but potentially better results.\n"
+            "Typical values: 100-300 for new models, 10-50 for fine-tuning."
         )
-        training_layout.addWidget(info_button, row, 3)
+        epochs_layout.addWidget(self.epochs_input)
+        epochs_layout.addWidget(epochs_info)
+        epochs_layout.addStretch()
+        params_layout.addRow("Epochs:", epochs_layout)
         
-        row += 1
-        # Image size
-        training_layout.addWidget(QLabel("Bildgröße:"), row, 0)
+        # Image Size
+        imgsz_layout = QHBoxLayout()
         self.imgsz_input = QSpinBox()
         self.imgsz_input.setRange(320, 1280)
-        self.imgsz_input.setValue(Config.training.image_size)
+        self.imgsz_input.setValue(640)
         self.imgsz_input.setSingleStep(32)
-        training_layout.addWidget(self.imgsz_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Die Größe, auf die alle Trainingsbilder skaliert werden (in Pixeln)."
+        imgsz_info = ParameterInfoButton(
+            "Input image size for training (must be multiple of 32).\n"
+            "Higher values = better detail detection but slower training.\n"
+            "Common values: 640 (standard), 832 (detailed), 1024 (high detail)."
         )
-        training_layout.addWidget(info_button, row, 3)
+        imgsz_layout.addWidget(self.imgsz_input)
+        imgsz_layout.addWidget(imgsz_info)
+        imgsz_layout.addStretch()
+        params_layout.addRow("Image Size:", imgsz_layout)
         
-        row += 1
-        # Batch
-        training_layout.addWidget(QLabel("Batch:"), row, 0)
+        # Batch Size
+        batch_layout = QHBoxLayout()
         self.batch_input = QDoubleSpinBox()
-        self.batch_input.setRange(0.0, 1.0)
-        self.batch_input.setDecimals(2)
-        self.batch_input.setValue(Config.training.batch)
-        self.batch_input.setSingleStep(0.05)
-        training_layout.addWidget(self.batch_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Automatische Batch-Größe basierend auf verfügbarem GPU-Speicher."
+        self.batch_input.setRange(0.1, 128.0)
+        self.batch_input.setValue(0.8)
+        self.batch_input.setSingleStep(0.1)
+        batch_info = ParameterInfoButton(
+            "Batch size controls memory usage and training stability.\n"
+            "Values < 1.0 = automatic sizing based on GPU memory.\n"
+            "Values ≥ 1.0 = fixed batch size.\n"
+            "Start with 0.8 for automatic, or 16 for fixed batch."
         )
-        training_layout.addWidget(info_button, row, 3)
+        batch_layout.addWidget(self.batch_input)
+        batch_layout.addWidget(batch_info)
+        batch_layout.addStretch()
+        params_layout.addRow("Batch Size:", batch_layout)
         
-        row += 1
-        # Learning rate
-        training_layout.addWidget(QLabel("Lernrate (lr0):"), row, 0)
-        self.lr_input = QDoubleSpinBox()
-        self.lr_input.setRange(0.0001, 0.1)
-        self.lr_input.setDecimals(4)
-        self.lr_input.setValue(Config.training.lr0)
-        self.lr_input.setSingleStep(0.0005)
-        training_layout.addWidget(self.lr_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Die anfängliche Lernrate bestimmt die Schrittgröße beim Training."
+        # Learning Rate
+        lr_layout = QHBoxLayout()
+        self.lr0_input = QDoubleSpinBox()
+        self.lr0_input.setRange(0.0001, 0.1)
+        self.lr0_input.setValue(0.005)
+        self.lr0_input.setDecimals(4)
+        self.lr0_input.setSingleStep(0.001)
+        lr_info = ParameterInfoButton(
+            "Initial learning rate for optimization.\n"
+            "Higher values = faster learning but less stable.\n"
+            "Typical values: 0.001-0.01 for new training, 0.0001-0.001 for fine-tuning."
         )
-        training_layout.addWidget(info_button, row, 3)
+        lr_layout.addWidget(self.lr0_input)
+        lr_layout.addWidget(lr_info)
+        lr_layout.addStretch()
+        params_layout.addRow("Learning Rate:", lr_layout)
         
-        parent_layout.addWidget(training_group)
-
-    def create_advanced_training_group(self, parent_layout):
-        """Create advanced training parameters group."""
-        advanced_frame = QGroupBox("Advanced Settings")
-        self.advanced_layout = QGridLayout(advanced_frame)
-        self.advanced_layout.setVerticalSpacing(6)
+        params_group.setLayout(params_layout)
+        layout.addWidget(params_group)
         
-        row = 0
+        # Advanced Settings Group
+        advanced_group = QGroupBox("Advanced Settings")
+        advanced_layout = QFormLayout()
+        
         # Resume training
-        self.advanced_layout.addWidget(QLabel("Training fortsetzen:"), row, 0)
-        self.resume_input = QCheckBox()
-        self.resume_input.setStyleSheet("""
-            QCheckBox {
-                color: #333333;
-            }
-            QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
-                border: 2px solid #1976D2;
-                border-radius: 4px;
-                background-color: white;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #1976D2;
-                border-color: #1976D2;
-            }
-        """)
-        self.resume_input.setChecked(Config.training.resume)
-        self.advanced_layout.addWidget(self.resume_input, row, 1)
+        self.resume_input = QCheckBox("Resume from last checkpoint")
+        advanced_layout.addRow("Resume:", self.resume_input)
         
-        info_button = ParameterInfoButton(
-            "Training vom letzten Checkpoint fortsetzen."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
+        # Multi-scale training
+        self.multi_scale_input = QCheckBox("Multi-scale training")
+        advanced_layout.addRow("Multi-scale:", self.multi_scale_input)
         
-        row += 1
-        # Multi-scale training (DETECTION ONLY)
-        self.multi_scale_label = QLabel("Multi-Scale Training:")
-        self.advanced_layout.addWidget(self.multi_scale_label, row, 0)
-        self.multi_scale_input = QCheckBox()
-        self.multi_scale_input.setStyleSheet(self.resume_input.styleSheet())
-        self.multi_scale_input.setChecked(Config.training.multi_scale)
-        self.advanced_layout.addWidget(self.multi_scale_input, row, 1)
+        # Cosine LR
+        self.cos_lr_input = QCheckBox("Cosine learning rate scheduler")
+        self.cos_lr_input.setChecked(True)
+        advanced_layout.addRow("Cosine LR:", self.cos_lr_input)
         
-        self.multi_scale_info = ParameterInfoButton(
-            "Training mit verschiedenen Bildgrößen (nur für Detection empfohlen)."
-        )
-        self.advanced_layout.addWidget(self.multi_scale_info, row, 3)
+        advanced_group.setLayout(advanced_layout)
+        layout.addWidget(advanced_group)
         
-        row += 1
-        # Copy-paste augmentation (SEGMENTATION ONLY)
-        self.copy_paste_label = QLabel("Copy-Paste Augmentation:")
-        self.advanced_layout.addWidget(self.copy_paste_label, row, 0)
-        self.copy_paste_input = QCheckBox()
-        self.copy_paste_input.setStyleSheet(self.resume_input.styleSheet())
-        self.copy_paste_input.setChecked(False)
-        self.advanced_layout.addWidget(self.copy_paste_input, row, 1)
+        # Control Buttons
+        control_group = QGroupBox("Training Control")
+        control_layout = QVBoxLayout()
         
-        self.copy_paste_info = ParameterInfoButton(
-            "Spezielle Augmentation für Segmentierung (kopiert Objekte zwischen Bildern)."
-        )
-        self.advanced_layout.addWidget(self.copy_paste_info, row, 3)
-        
-        row += 1
-        # Mask ratio (SEGMENTATION ONLY)
-        self.mask_ratio_label = QLabel("Mask Ratio:")
-        self.advanced_layout.addWidget(self.mask_ratio_label, row, 0)
-        self.mask_ratio_input = QSpinBox()
-        self.mask_ratio_input.setRange(1, 8)
-        self.mask_ratio_input.setValue(4)
-        self.advanced_layout.addWidget(self.mask_ratio_input, row, 1)
-        
-        self.mask_ratio_info = ParameterInfoButton(
-            "Verhältnis der Masken-Auflösung zur Bild-Auflösung (nur Segmentierung)."
-        )
-        self.advanced_layout.addWidget(self.mask_ratio_info, row, 3)
-        
-        row += 1
-        # Cosine LR scheduling
-        self.advanced_layout.addWidget(QLabel("Cosine Learning Rate:"), row, 0)
-        self.cos_lr_input = QCheckBox()
-        self.cos_lr_input.setStyleSheet(self.resume_input.styleSheet())
-        self.cos_lr_input.setChecked(Config.training.cos_lr)
-        self.advanced_layout.addWidget(self.cos_lr_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Lernrate nach Cosinus-Schema reduzieren."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Close mosaic
-        self.advanced_layout.addWidget(QLabel("Close Mosaic Epochs:"), row, 0)
-        self.close_mosaic_input = QSpinBox()
-        self.close_mosaic_input.setRange(0, 15)
-        self.close_mosaic_input.setValue(Config.training.close_mosaic)
-        self.advanced_layout.addWidget(self.close_mosaic_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Letzte Epochen ohne Mosaic-Augmentation für Feinabstimmung."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Momentum
-        self.advanced_layout.addWidget(QLabel("Momentum:"), row, 0)
-        self.momentum_input = QDoubleSpinBox()
-        self.momentum_input.setRange(0.8, 0.999)
-        self.momentum_input.setDecimals(3)
-        self.momentum_input.setValue(Config.training.momentum)
-        self.momentum_input.setSingleStep(0.01)
-        self.advanced_layout.addWidget(self.momentum_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Momentum-Parameter für den Optimizer."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Warmup epochs
-        self.advanced_layout.addWidget(QLabel("Warmup Epochs:"), row, 0)
-        self.warmup_epochs_input = QSpinBox()
-        self.warmup_epochs_input.setRange(0, 10)
-        self.warmup_epochs_input.setValue(Config.training.warmup_epochs)
-        self.advanced_layout.addWidget(self.warmup_epochs_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Epochen mit langsamer Lernraten-Erhöhung am Trainingsanfang."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Warmup momentum
-        self.advanced_layout.addWidget(QLabel("Warmup Momentum:"), row, 0)
-        self.warmup_momentum_input = QDoubleSpinBox()
-        self.warmup_momentum_input.setRange(0.0, 1.0)
-        self.warmup_momentum_input.setDecimals(2)
-        self.warmup_momentum_input.setValue(Config.training.warmup_momentum)
-        self.advanced_layout.addWidget(self.warmup_momentum_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Anfangswert für Momentum während der Warmup-Phase."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Box loss gain
-        self.advanced_layout.addWidget(QLabel("Box Loss Gain:"), row, 0)
-        self.box_input = QSpinBox()
-        self.box_input.setRange(3, 10)
-        self.box_input.setValue(Config.training.box)
-        self.advanced_layout.addWidget(self.box_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Gewichtungsfaktor für den Bounding-Box-Lokalisierungs-Loss."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        row += 1
-        # Dropout
-        self.advanced_layout.addWidget(QLabel("Dropout:"), row, 0)
-        self.dropout_input = QDoubleSpinBox()
-        self.dropout_input.setRange(0.0, 0.5)
-        self.dropout_input.setDecimals(2)
-        self.dropout_input.setValue(Config.training.dropout)
-        self.dropout_input.setSingleStep(0.05)
-        self.advanced_layout.addWidget(self.dropout_input, row, 1)
-        
-        info_button = ParameterInfoButton(
-            "Dropout-Rate zur Verhinderung von Überanpassung."
-        )
-        self.advanced_layout.addWidget(info_button, row, 3)
-        
-        parent_layout.addWidget(advanced_frame)
-
-    def create_progress_control_section(self, parent_layout):
-        """Create progress and control section."""
-        progress_frame = QFrame()
-        progress_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        progress_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-            }
-        """)
-        progress_layout = QVBoxLayout(progress_frame)
-
-        # Progress bar with label
-        progress_label = QLabel("Training Progress:")
-        progress_label.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        progress_layout.addWidget(progress_label)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("%p% (0/%m epochs)")
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #cbd5e0;
-                border-radius: 4px;
-                text-align: center;
-                color: #2d3748;
-                background-color: #edf2f7;
-            }
-            QProgressBar::chunk {
-                background-color: #3498db;
-                border-radius: 3px;
-            }
-        """)
-        progress_layout.addWidget(self.progress_bar)
-
-        # Progress detail label
-        self.progress_detail = QLabel("Ready to start training")
-        progress_layout.addWidget(self.progress_detail)
-
-        # Control buttons
-        buttons_layout = QHBoxLayout()
-
-        # Start/Stop button
+        # Start button
         self.start_button = QPushButton("Start Training")
-        self.start_button.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        self.start_button.setMinimumHeight(40)
+        self.start_button.setMinimumHeight(50)
         self.start_button.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border-radius: 5px;
+                background-color: #28a745;
+                font-size: 16px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
+                background-color: #218838;
             }
         """)
         self.start_button.clicked.connect(self.start_training)
-        buttons_layout.addWidget(self.start_button)
-
-        # Reset button
-        self.reset_button = QPushButton("Reset Form")
-        self.reset_button.setMinimumHeight(40)
-        self.reset_button.clicked.connect(self.reset_form)
-        buttons_layout.addWidget(self.reset_button)
-
-        progress_layout.addLayout(buttons_layout)
-        parent_layout.addWidget(progress_frame)
-
-    def create_dashboard_panel(self):
-        """Create the dashboard panel."""
-        self.dashboard_panel = QWidget()
-        self.dashboard_layout = QVBoxLayout(self.dashboard_panel)
-
-        # Create dashboard tabs
-        self.tabs, self.figure, self.canvas, self.log_text = create_dashboard_tabs(self)
-        self.dashboard_layout.addWidget(self.tabs)
-
-    def initialize_model_settings(self):
-        """Initialize model settings based on project manager."""
-        try:
-            if self.project_manager:
-                # Detect annotation type and set appropriate default
-                recommended_type = self.project_manager.get_recommended_model_type()
-                if recommended_type == "segmentation":
-                    self.model_type_input.setCurrentText("Segmentation")
-                else:
-                    self.model_type_input.setCurrentText("Detection")
-
-            # Update model options and connect signals AFTER all UI elements are created
-            self.update_model_options()
-            
-            # NOW connect the signal after everything is initialized
-            self.model_type_input.currentTextChanged.connect(self.on_model_type_changed)
-
-        except Exception as e:
-            logger.error(f"Error initializing model settings: {e}")
-            # Fallback to defaults
-            self.update_model_options()
-            self.model_type_input.currentTextChanged.connect(self.on_model_type_changed)
-
-    def on_model_type_changed(self):
-        """Handle model type change."""
-        try:
-            self.update_model_options()
-            model_type = self.model_type_input.currentText().lower()
-            self.update_ui_for_model_type(model_type)
-        except Exception as e:
-            logger.error(f"Error handling model type change: {e}")
+        control_layout.addWidget(self.start_button)
+        
+        # Stop button
+        self.stop_button = QPushButton("Stop Training")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        self.stop_button.clicked.connect(self.stop_training)
+        control_layout.addWidget(self.stop_button)
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimumHeight(25)
+        control_layout.addWidget(self.progress_bar)
+        
+        # Status label
+        self.status_label = QLabel("Ready to start training")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("color: #495057; font-weight: bold;")
+        control_layout.addWidget(self.status_label)
+        
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+        
+        # GPU Status
+        self.gpu_status_label = QLabel("Checking GPU...")
+        self.gpu_status_label.setWordWrap(True)
+        self.gpu_status_label.setStyleSheet("color: #6c757d; font-size: 12px; padding: 10px;")
+        layout.addWidget(self.gpu_status_label)
+        
+        # Navigation buttons
+        nav_group = QGroupBox("Navigation")
+        nav_layout = QVBoxLayout()
+        
+        self.verification_button = QPushButton("Continue to Verification")
+        self.verification_button.setMinimumHeight(40)
+        self.verification_button.clicked.connect(self.open_verification_app)
+        nav_layout.addWidget(self.verification_button)
+        
+        nav_group.setLayout(nav_layout)
+        layout.addWidget(nav_group)
+        
+        layout.addStretch()
+        return panel
 
     def update_model_options(self):
         """Update available model options based on selected type."""
-        if not self.model_input:
-            return
-            
         model_type = self.model_type_input.currentText().lower()
-
-        self.model_input.clear()
-
-        if model_type == "segmentation":
-            models = [
-                "yolo11n-seg.pt",
-                "yolo11s-seg.pt",
-                "yolo11m-seg.pt",
-                "yolo11l-seg.pt",
-                "yolo11x-seg.pt"
-            ]
-        else:  # detection
-            models = [
-                "yolo11n.pt",
-                "yolo11s.pt",
-                "yolo11m.pt",
-                "yolo11l.pt",
-                "yolo11x.pt"
-            ]
-
-        self.model_input.addItems(models)
-
-        # Set default based on project manager if available
-        if self.project_manager:
-            try:
-                default_model = self.project_manager.get_default_model_path(model_type)
-                index = self.model_input.findText(default_model)
-                if index >= 0:
-                    self.model_input.setCurrentIndex(index)
-            except:
-                pass  # Use first item as default
-
-    def update_ui_for_model_type(self, model_type):
-        """Update UI visibility based on selected model type."""
-        # Safety check - only proceed if all UI elements exist
-        required_elements = [
-            'multi_scale_label', 'multi_scale_input', 'multi_scale_info',
-            'copy_paste_label', 'copy_paste_input', 'copy_paste_info',
-            'mask_ratio_label', 'mask_ratio_input', 'mask_ratio_info'
-        ]
         
-        for element in required_elements:
-            if not hasattr(self, element) or getattr(self, element) is None:
-                logger.warning(f"UI element {element} not ready for update")
-                return
+        print(f"DEBUG: Updating model options for type: {model_type}")
+        
+        if model_type == "nachtraining":
+            # Hide dropdown, show browse interface
+            self.model_dropdown_widget.hide()
+            self.model_browse_widget.show()
             
-        is_segmentation = model_type == "segmentation"
-        
-        # Multi-scale training - hide for segmentation (not recommended)
-        self.multi_scale_label.setVisible(not is_segmentation)
-        self.multi_scale_input.setVisible(not is_segmentation)
-        self.multi_scale_info.setVisible(not is_segmentation)
-        
-        # Segmentation-specific parameters - show only for segmentation
-        self.copy_paste_label.setVisible(is_segmentation)
-        self.copy_paste_input.setVisible(is_segmentation)
-        self.copy_paste_info.setVisible(is_segmentation)
-        
-        self.mask_ratio_label.setVisible(is_segmentation)
-        self.mask_ratio_input.setVisible(is_segmentation)
-        self.mask_ratio_info.setVisible(is_segmentation)
-        
-        # Update batch size recommendations in tooltip
-        if hasattr(self, 'batch_input'):
-            if is_segmentation:
-                self.batch_input.setToolTip(
-                    "Segmentierung benötigt mehr GPU-Speicher als Detection.\n"
-                    "Reduzieren Sie diesen Wert bei Out-of-Memory-Fehlern."
-                )
+            # Try to load current model from project
+            if self.project_manager:
+                try:
+                    latest_model = self.project_manager.get_latest_model_path()
+                    if latest_model and latest_model.exists():
+                        self.model_path_display.setText(str(latest_model))
+                        self.selected_model_path = str(latest_model)
+                    else:
+                        self.model_path_display.setText("No model found - please select one")
+                        self.selected_model_path = None
+                except Exception as e:
+                    print(f"Error loading latest model: {e}")
+                    self.model_path_display.setText("Please select a model file")
+                    self.selected_model_path = None
             else:
-                self.batch_input.setToolTip(
-                    "Detection Training ist speicher-effizienter als Segmentierung.\n"
-                    "Höhere Werte sind meist möglich."
-                )
+                self.model_path_display.setText("Please select a model file")
+                self.selected_model_path = None
+        else:
+            # Show dropdown, hide browse interface
+            self.model_dropdown_widget.show()
+            self.model_browse_widget.hide()
+            
+            # Clear and populate dropdown
+            self.model_input.clear()
+            
+            if model_type == "segmentation":
+                models = [
+                    "yolo11n-seg.pt",
+                    "yolo11s-seg.pt", 
+                    "yolo11m-seg.pt",
+                    "yolo11l-seg.pt",
+                    "yolo11x-seg.pt",
+                    "yolo8n-seg.pt",
+                    "yolo8s-seg.pt",
+                    "yolo8m-seg.pt",
+                    "yolo8l-seg.pt",
+                    "yolo8x-seg.pt"
+                ]
+            else:  # detection (default)
+                models = [
+                    "yolo11n.pt",
+                    "yolo11s.pt",
+                    "yolo11m.pt", 
+                    "yolo11l.pt",
+                    "yolo11x.pt",
+                    "yolo8n.pt",
+                    "yolo8s.pt",
+                    "yolo8m.pt",
+                    "yolo8l.pt",
+                    "yolo8x.pt"
+                ]
+            
+            print(f"DEBUG: Adding {len(models)} models to dropdown")
+            self.model_input.addItems(models)
+            
+            # Set default based on project manager if available
+            if self.project_manager:
+                try:
+                    default_model = self.project_manager.get_default_model_path(model_type)
+                    index = self.model_input.findText(default_model)
+                    if index >= 0:
+                        self.model_input.setCurrentIndex(index)
+                        print(f"DEBUG: Set default model to {default_model}")
+                except:
+                    pass
+            
+            print(f"DEBUG: Model dropdown now has {self.model_input.count()} items")
 
     def browse_project(self):
-        """Open file dialog to select project directory."""
-        directory = QFileDialog.getExistingDirectory(
-            self, "Projektverzeichnis wählen", 
-            self.project_input.text()
-        )
+        """Browse for project directory."""
+        directory = QFileDialog.getExistingDirectory(self, "Select Project Directory")
         if directory:
             self.project_input.setText(directory)
 
     def browse_data(self):
-        """Open file dialog to select YAML dataset file."""
+        """Browse for dataset YAML file."""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Datenpfad auswählen", "", "YAML Dateien (*.yaml)"
+            self, "Select Dataset YAML", "", "YAML Files (*.yaml *.yml);;All Files (*)"
         )
         if file_path:
             self.data_input.setText(file_path)
 
-    def reset_form(self):
-        """Reset form to default values."""
-        if self.training_active:
-            QMessageBox.warning(
-                self,
-                "Training aktiv",
-                "Das Formular kann nicht zurückgesetzt werden, während ein Training läuft.",
-            )
-            return
-            
-        # Reset project and experiment fields
-        if hasattr(self, "project_manager") and self.project_manager:
-            self.project_input.setText(str(self.project_manager.get_models_dir()))
-        else:
-            self.project_input.setText(Config.training.project_dir)
-        self.name_input.setText("")
-        self.data_input.setText("")
+    def browse_model_file(self):
+        """Browse for pre-trained model file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Pre-trained Model", "", "PyTorch Models (*.pt);;All Files (*)"
+        )
+        if file_path:
+            self.selected_model_path = file_path
+            self.model_path_display.setText(file_path)
 
-        # Reset training parameters
-        self.epochs_input.setValue(Config.training.epochs)
-        self.imgsz_input.setValue(Config.training.image_size)
-        self.batch_input.setValue(Config.training.batch)
-        self.lr_input.setValue(Config.training.lr0)
+    def check_gpu_status(self):
+        """Check and display GPU status."""
+        try:
+            gpu_available, gpu_message = check_gpu()
+            if gpu_available:
+                self.gpu_status_label.setText(f"✅ GPU Ready: {gpu_message}")
+                self.gpu_status_label.setStyleSheet("color: #28a745; font-size: 12px; padding: 10px;")
+            else:
+                self.gpu_status_label.setText(f"⚠️ GPU Not Available: {gpu_message}")
+                self.gpu_status_label.setStyleSheet("color: #ffc107; font-size: 12px; padding: 10px;")
+        except Exception as e:
+            self.gpu_status_label.setText(f"❌ GPU Check Failed: {str(e)}")
+            self.gpu_status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 10px;")
 
-        # Reset advanced parameters
-        self.resume_input.setChecked(Config.training.resume)
-        if hasattr(self, 'multi_scale_input'):
-            self.multi_scale_input.setChecked(Config.training.multi_scale)
-        self.cos_lr_input.setChecked(Config.training.cos_lr)
-        self.close_mosaic_input.setValue(Config.training.close_mosaic)
-        self.momentum_input.setValue(Config.training.momentum)
-        self.warmup_epochs_input.setValue(Config.training.warmup_epochs)
-        self.warmup_momentum_input.setValue(Config.training.warmup_momentum)
-        self.box_input.setValue(Config.training.box)
-        self.dropout_input.setValue(Config.training.dropout)
-        
-        # Reset segmentation-specific parameters
-        if hasattr(self, 'copy_paste_input'):
-            self.copy_paste_input.setChecked(False)
-        if hasattr(self, 'mask_ratio_input'):
-            self.mask_ratio_input.setValue(4)
-
-        # Reset progress and logs
-        self.progress_bar.setValue(0)
-        self.progress_detail.setText("Ready to start training")
-        self.log_text.setText("Training log will appear here...")
-
-        # Reset dashboard
-        self.setup_plots()
+    def connect_signals(self):
+        """Connect training thread signals."""
+        self.signals.progress_updated.connect(self.update_progress)
+        self.signals.log_updated.connect(self.update_log)
+        self.signals.results_updated.connect(self.update_dashboard)
 
     def start_training(self):
-        """Validate inputs and start the training process."""
-        if self.training_active:
-            # Currently training, stop it
-            self.stop_training()
+        """Start the training process."""
+        # Validate inputs
+        if not self.validate_inputs():
             return
-
-        # Validate YAML file
-        data_path = self.data_input.text().strip()
-        if not data_path:
-            QMessageBox.critical(
-                self, "Validierungsfehler", "Bitte wählen Sie eine YAML-Datei aus."
-            )
-            return
-
-        # Get current model type for validation
-        model_type_str = self.model_type_input.currentText().lower()
-
-        # Use enhanced validation that considers model type
-        is_valid, message = validate_yaml_for_model_type(data_path, model_type_str)
-        if not is_valid:
-            QMessageBox.critical(
-                self,
-                "Validierungsfehler",
-                f"Fehler in der YAML-Datei:\n{message}",
-            )
-            return
-        elif "Warning:" in message:
-            # Show warning but allow to continue
-            response = QMessageBox.warning(
-                self,
-                "Validierungswarnung",
-                f"{message}\n\nMöchten Sie trotzdem fortfahren?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if response == QMessageBox.StandardButton.No:
-                return
-        else:
-            logger.info(f"YAML validation successful: {message}")
-
-        # Check GPU availability
-        gpu_available, gpu_message = check_gpu()
-        if not gpu_available:
-            response = QMessageBox.warning(
-                self,
-                "GPU-Warnung",
-                f"{gpu_message}\nMöchten Sie trotzdem fortfahren?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if response == QMessageBox.StandardButton.No:
-                return
-
-        # Get training parameters
-        model_type = self.model_type_input.currentText().lower()
+        
+        # Get parameters
+        data_path = self.data_input.text()
         epochs = self.epochs_input.value()
         imgsz = self.imgsz_input.value()
-        batch = float(self.batch_input.value())
-        lr0 = self.lr_input.value()
-        resume = self.resume_input.isChecked()
-        multi_scale = self.multi_scale_input.isChecked() if hasattr(self, 'multi_scale_input') else False
-        cos_lr = self.cos_lr_input.isChecked()
-        close_mosaic = self.close_mosaic_input.value()
-        momentum = self.momentum_input.value()
-        warmup_epochs = self.warmup_epochs_input.value()
-        warmup_momentum = self.warmup_momentum_input.value()
-        box = self.box_input.value()
-        dropout = self.dropout_input.value()
+        batch = self.batch_input.value()
+        lr0 = self.lr0_input.value()
+        project = self.project_input.text()
+        experiment = self.name_input.text()
         
-        # Get segmentation-specific parameters
-        copy_paste = 0.0
-        mask_ratio = 4
-        if (model_type == "segmentation" and 
-            hasattr(self, 'copy_paste_input') and 
-            self.copy_paste_input.isVisible()):
-            copy_paste = 0.3 if self.copy_paste_input.isChecked() else 0.0
-        if (model_type == "segmentation" and 
-            hasattr(self, 'mask_ratio_input') and 
-            self.mask_ratio_input.isVisible()):
-            mask_ratio = self.mask_ratio_input.value()
-
         # Get model path
-        model_path = self.model_input.currentText()
-        if not model_path:
-            model_path = "yolo11n-seg.pt" if model_type == "segmentation" else "yolo11n.pt"
-
-        # Get project settings
-        self.project = self.project_input.text() or Config.training.project_dir
-        self.experiment = self.name_input.text() or Config.training.experiment_name
-
-        # Update UI to show training is active
-        self.training_active = True
-        self.start_button.setText("Stop Training")
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #d32f2f;
-            }
-        """)
+        model_type = self.model_type_input.currentText().lower()
+        if model_type == "nachtraining":
+            if not self.selected_model_path:
+                QMessageBox.warning(self, "Error", "Please select a pre-trained model for continual training.")
+                return
+            model_path = self.selected_model_path
+        else:
+            model_path = self.model_input.currentText()
         
-        # Disable settings controls during training
-        self.disable_settings(True)
-
-        # Reset progress
+        # Disable UI during training
+        self.training_active = True
+        self.start_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat(f"%p% (0/{epochs} epochs)")
-        self.progress_detail.setText("Initializing training...")
-
-        # Start monitoring for results.csv
-        self.results_check_timer.start()
-
-        # Start training in a separate thread
-        start_training_thread(
-            self.signals,
-            data_path,
-            epochs,
-            imgsz,
-            batch,
-            lr0,
-            resume,
-            multi_scale,
-            cos_lr,
-            close_mosaic,
-            momentum,
-            warmup_epochs,
-            warmup_momentum,
-            box,
-            dropout,
-            copy_paste,
-            mask_ratio,
-            self.project,
-            self.experiment,
-            model_path,
-        )
+        self.status_label.setText("Starting training...")
+        
+        # Clear log
+        self.log_text.setText("Training started...\n")
         
         # Save settings to project
-        self.save_training_settings_to_project()
+        if self.project_manager:
+            self.save_training_settings()
+        
+        # Start training in thread
+        self.training_thread = start_training_thread(
+            self.signals,
+            data_path=data_path,
+            epochs=epochs,
+            imgsz=imgsz,
+            batch=batch,
+            lr0=lr0,
+            resume=self.resume_input.isChecked(),
+            multi_scale=self.multi_scale_input.isChecked(),
+            cos_lr=self.cos_lr_input.isChecked(),
+            close_mosaic=10,
+            momentum=0.937,
+            warmup_epochs=3,
+            warmup_momentum=0.8,
+            box=7.5,
+            dropout=0.0,
+            copy_paste=0.0,
+            mask_ratio=4,
+            project=project,
+            experiment=experiment,
+            model_path=model_path
+        )
 
     def stop_training(self):
-        """Stop the current training process."""
-        stop_training(self.project, self.experiment)
-        self.signals.progress_updated.emit(0, "Training stopped by user")
-        self.training_active = False
-        self.start_button.setText("Start Training")
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        self.disable_settings(False)
-        self.results_check_timer.stop()
-
-    def disable_settings(self, disabled):
-        """Enable or disable settings controls."""
-        # Project and experiment inputs
-        if hasattr(self, 'project_input'):
-            self.project_input.setReadOnly(disabled)
-        if hasattr(self, 'project_browse'):
-            self.project_browse.setEnabled(not disabled)
-        if hasattr(self, 'name_input'):
-            self.name_input.setReadOnly(disabled)
-        if hasattr(self, 'data_input'):
-            self.data_input.setReadOnly(disabled)
-        if hasattr(self, 'data_browse'):
-            self.data_browse.setEnabled(not disabled)
-
-        # Basic training parameters
-        if hasattr(self, 'epochs_input'):
-            self.epochs_input.setReadOnly(disabled)
-        if hasattr(self, 'imgsz_input'):
-            self.imgsz_input.setReadOnly(disabled)
-        if hasattr(self, 'batch_input'):
-            self.batch_input.setReadOnly(disabled)
-        if hasattr(self, 'lr_input'):
-            self.lr_input.setReadOnly(disabled)
-
-        # Advanced parameters
-        if hasattr(self, 'resume_input'):
-            self.resume_input.setEnabled(not disabled)
-        if hasattr(self, 'multi_scale_input'):
-            self.multi_scale_input.setEnabled(not disabled)
-        if hasattr(self, 'cos_lr_input'):
-            self.cos_lr_input.setEnabled(not disabled)
-        if hasattr(self, 'close_mosaic_input'):
-            self.close_mosaic_input.setReadOnly(disabled)
-        if hasattr(self, 'momentum_input'):
-            self.momentum_input.setReadOnly(disabled)
-        if hasattr(self, 'warmup_epochs_input'):
-            self.warmup_epochs_input.setReadOnly(disabled)
-        if hasattr(self, 'warmup_momentum_input'):
-            self.warmup_momentum_input.setReadOnly(disabled)
-        if hasattr(self, 'box_input'):
-            self.box_input.setReadOnly(disabled)
-        if hasattr(self, 'dropout_input'):
-            self.dropout_input.setReadOnly(disabled)
-        
-        # Segmentation-specific parameters
-        if hasattr(self, 'copy_paste_input'):
-            self.copy_paste_input.setEnabled(not disabled)
-        if hasattr(self, 'mask_ratio_input'):
-            self.mask_ratio_input.setReadOnly(disabled)
-
-        # Reset button
-        if hasattr(self, 'reset_button'):
-            self.reset_button.setEnabled(not disabled)
-
-    def update_progress(self, progress, message=""):
-        """Update the progress bar and handle training completion/errors."""
-        try:
-            if progress >= 100:
-                self.training_active = False
-                self.start_button.setText("Start Training")
-                self.start_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #4CAF50;
-                        color: white;
-                        border-radius: 5px;
-                    }
-                    QPushButton:hover {
-                        background-color: #45a049;
-                    }
-                """)
-                self.progress_bar.setValue(100)
-                self.progress_detail.setText("Training complete!")
-                self.disable_settings(False)
-                self.results_check_timer.stop()
-                if not message:  # Only show success if no error
-                    QMessageBox.information(
-                        self, "Training", "Training erfolgreich abgeschlossen!"
-                    )
-
-                if hasattr(self, "project_manager") and self.project_manager:
-                    # Trainiertes Modell registrieren
-                    model_path = os.path.join(
-                        self.project, self.experiment, "weights", "best.pt"
-                    )
-                    try:
-                        self.project_manager.register_new_model(model_path)
-                        self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
-                        self.notify_main_menu()
-                    except Exception as e:
-                        logger.error(f"Error registering model: {e}")
-
-                # Ask to continue with verification step
-                reply = QMessageBox.question(
-                    self,
-                    "Training abgeschlossen",
-                    "Training erfolgreich abgeschlossen!\nWeiter zur Verifikation?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.open_verification_app()
-
-            elif progress == 0 and message:
-                self.training_active = False
-                self.start_button.setText("Start Training")
-                self.start_button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #4CAF50;
-                        color: white;
-                        border-radius: 5px;
-                    }
-                    QPushButton:hover {
-                        background-color: #45a049;
-                    }
-                """)
-                self.progress_bar.setValue(0)
-                self.progress_detail.setText("Training failed")
-                self.disable_settings(False)
-                self.results_check_timer.stop()
-                QMessageBox.critical(
-                    self, "Fehler", f"Training fehlgeschlossen:\n{message}"
-                )
-            else:
-                # Update progress bar value
-                self.progress_bar.setValue(int(progress))
-
-                # Update progress bar text to show current epoch
-                epochs = self.epochs_input.value()
-                current_epoch = int(progress * epochs / 100)
-                self.progress_bar.setFormat(f"%p% ({current_epoch}/{epochs} epochs)")
-
-                if message:
-                    self.progress_detail.setText(message)
-        except Exception as e:
-            logger.error(f"Error updating progress: {e}")
+        """Stop the training process."""
+        if self.training_active:
+            stop_training()
             self.training_active = False
             self.start_button.setEnabled(True)
-            self.disable_settings(False)
-            self.results_check_timer.stop()
+            self.stop_button.setEnabled(False)
+            self.status_label.setText("Training stopped by user")
 
-    def update_log(self, log_message):
-        """Update the log text area."""
+    def validate_inputs(self):
+        """Validate training inputs."""
+        if not self.data_input.text():
+            QMessageBox.warning(self, "Error", "Please select a dataset YAML file.")
+            return False
+        
+        if not self.project_input.text():
+            QMessageBox.warning(self, "Error", "Please select a project directory.")
+            return False
+        
+        if not self.name_input.text():
+            QMessageBox.warning(self, "Error", "Please enter an experiment name.")
+            return False
+        
+        # Validate YAML file
+        yaml_path = self.data_input.text()
+        if not os.path.exists(yaml_path):
+            QMessageBox.warning(self, "Error", f"Dataset YAML file not found: {yaml_path}")
+            return False
+        
+        model_type = self.model_type_input.currentText().lower()
+        is_valid, message = validate_yaml_for_model_type(yaml_path, model_type)
+        if not is_valid:
+            QMessageBox.critical(self, "Dataset Error", message)
+            return False
+        elif "Warning:" in message:
+            reply = QMessageBox.question(
+                self, "Dataset Warning", 
+                f"{message}\n\nContinue anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return False
+        
+        return True
+
+    def update_progress(self, progress, message):
+        """Update training progress."""
+        self.progress_bar.setValue(progress)
+        if message:
+            self.status_label.setText(message)
+        
+        if progress >= 100 or progress == 0:
+            self.training_active = False
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            
+            if progress >= 100 and self.project_manager:
+                self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+
+    def update_log(self, message):
+        """Update training log."""
         current_text = self.log_text.text()
-        new_text = current_text + "\n" + log_message if current_text else log_message
-        self.log_text.setText(new_text)
-
-        # Make sure the tab is visible if important message
-        if "error" in log_message.lower() or "exception" in log_message.lower():
-            self.tabs.setCurrentIndex(1)  # Switch to log tab
-
-    def check_results_csv(self):
-        """Check if results.csv exists and has been updated."""
-        from gui.training.training_utils import check_and_load_results_csv
-
-        df = check_and_load_results_csv(
-            self.project, self.experiment, self.last_results_check
-        )
-        if df is not None:
-            self.last_results_check = os.path.getmtime(df.filepath)
-            self.signals.results_updated.emit(df)
-
-            # Update progress based on epochs
-            try:
-                current_epoch = int(df["epoch"].max())
-                total_epochs = self.epochs_input.value()
-                progress = int((current_epoch / total_epochs) * 100)
-                self.progress_bar.setValue(progress)
-                self.progress_bar.setFormat(
-                    f"%p% ({current_epoch}/{total_epochs} epochs)"
-                )
-                self.progress_detail.setText(
-                    f"Training epoch {current_epoch}/{total_epochs}"
-                )
-            except Exception as e:
-                logger.error(f"Error updating progress from results.csv: {e}")
+        self.log_text.setText(current_text + message + "\n")
+        
+        # Auto-scroll to bottom
+        scrollbar = self.log_text.parent().verticalScrollBar()
+        if scrollbar:
+            scrollbar.setValue(scrollbar.maximum())
 
     def update_dashboard(self, df):
-        """Update the dashboard with new data."""
-        from gui.training.dashboard_view import update_dashboard_plots
-        update_dashboard_plots(self, df)
+        """Update dashboard with new training data."""
+        try:
+            update_dashboard_plots(self, df)
+        except Exception as e:
+            logger.error(f"Error updating dashboard: {e}")
 
-    def setup_plots(self):
-        """Initialize the matplotlib plots."""
-        from gui.training.dashboard_view import setup_plots
-        setup_plots(self.figure, self.canvas)
+    def check_for_results_update(self):
+        """Check for updates to results.csv file."""
+        if not self.project_input.text() or not self.name_input.text():
+            return
+        
+        project = self.project_input.text()
+        experiment = self.name_input.text()
+        
+        df = check_and_load_results_csv(project, experiment, self.last_check_time)
+        if df is not None:
+            self.last_check_time = os.path.getmtime(df.filepath)
+            self.update_dashboard(df)
+
+    def load_project_settings(self):
+        """Load saved training settings from project."""
+        try:
+            saved_settings = self.project_manager.get_training_settings()
+            if saved_settings:
+                # Apply saved settings to UI
+                for key, value in saved_settings.items():
+                    widget_name = f"{key}_input"
+                    if hasattr(self, widget_name):
+                        widget = getattr(self, widget_name)
+                        try:
+                            if hasattr(widget, 'setValue'):
+                                widget.setValue(value)
+                            elif hasattr(widget, 'setText'):
+                                widget.setText(str(value))
+                            elif hasattr(widget, 'setChecked'):
+                                widget.setChecked(bool(value))
+                        except Exception as e:
+                            logger.warning(f"Could not set {key} to {value}: {e}")
+        except Exception as e:
+            logger.warning(f"Could not load project settings: {e}")
+
+    def save_training_settings(self):
+        """Save current training settings to project."""
+        try:
+            settings = {
+                'epochs': self.epochs_input.value(),
+                'imgsz': self.imgsz_input.value(),
+                'batch': self.batch_input.value(),
+                'lr0': self.lr0_input.value(),
+                'resume': self.resume_input.isChecked(),
+                'multi_scale': self.multi_scale_input.isChecked(),
+                'cos_lr': self.cos_lr_input.isChecked(),
+            }
+            self.project_manager.update_training_settings(settings)
+        except Exception as e:
+            logger.warning(f"Could not save training settings: {e}")
 
     def load_last_training_results(self):
-        """Lädt Ergebnisse des letzten Trainingslaufs in das Dashboard."""
-        if hasattr(self, "project_manager") and self.project_manager:
+        """Load results from the last training experiment."""
+        try:
+            if not self.project_manager:
+                return
+            
             last_exp = self.project_manager.get_last_experiment_name()
-            if not last_exp:
-                return
-            from gui.training.training_utils import check_and_load_results_csv
-            df = check_and_load_results_csv(
-                str(self.project_manager.project_root), last_exp
-            )
+            project_dir = self.project_manager.get_models_dir()
+            
+            # Look for results.csv in the last experiment
+            df = check_and_load_results_csv(str(project_dir), last_exp)
             if df is not None:
-                self.last_results_check = os.path.getmtime(df.filepath)
-                self.signals.results_updated.emit(df)        
-
-    def closeEvent(self, event):
-        """Handle window close event."""
-        # Check if training is active
-        if self.training_active:
-            # Ask user if they want to stop training
-            reply = QMessageBox.question(
-                self,
-                "Training Active",
-                "Training is still in progress. Are you sure you want to exit?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-
-            if reply == QMessageBox.StandardButton.Yes:
-                # Stop training
-                self.stop_training()
-            else:
-                # Cancel close
-                event.ignore()
-                return
+                self.update_dashboard(df)
+                self.last_check_time = os.path.getmtime(df.filepath)
+        except Exception as e:
+            logger.warning(f"Could not load last training results: {e}")
 
     def open_verification_app(self):
-        """Open verification window and close training window."""
+        """Open verification app and close training window."""
         try:
             from gui.verification_app import LiveAnnotationApp
             app = LiveAnnotationApp()
-            app.project_manager = getattr(self, 'project_manager', None)
-            if app.project_manager:
-                model_path = app.project_manager.get_current_model_path()
-                if not model_path:
-                    model_path = app.project_manager.get_latest_model_path()
+            app.project_manager = self.project_manager
+            
+            if self.project_manager:
+                # Set model path to latest trained model
+                model_path = self.project_manager.get_latest_model_path()
                 if model_path and model_path.exists():
                     app.model_line_edit.setText(str(model_path))
-
-                test_dir = app.project_manager.get_split_dir() / 'test' / 'images'
-                if not test_dir.exists() or not list(test_dir.glob('*.jpg')):
-                    test_dir = app.project_manager.get_labeled_dir()
+                
+                # Set test directory
+                test_dir = self.project_manager.get_split_dir() / "test" / "images"
+                if not test_dir.exists() or not list(test_dir.glob("*.jpg")):
+                    test_dir = self.project_manager.get_labeled_dir()
+                
                 app.folder_line_edit.setText(str(test_dir))
-
+            
             app.show()
             self.close()
         except Exception as e:
             logger.error(f"Failed to open verification app: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open verification app:\n{str(e)}")
 
-    def save_training_settings_to_project(self):
-        """Speichert Training-Settings ins Projekt"""
-        if hasattr(self, "project_manager") and self.project_manager:
-            settings = {
-                "epochs": self.epochs_input.value(),
-                "imgsz": self.imgsz_input.value(),
-                "batch": self.batch_input.value(),
-                "lr0": self.lr_input.value(),
-                "resume": self.resume_input.isChecked(),
-                "multi_scale": getattr(self.multi_scale_input, 'isChecked', lambda: False)(),
-                "cos_lr": self.cos_lr_input.isChecked(),
-                "close_mosaic": self.close_mosaic_input.value(),
-                "momentum": self.momentum_input.value(),
-                "warmup_epochs": self.warmup_epochs_input.value(),
-                "warmup_momentum": self.warmup_momentum_input.value(),
-                "box": self.box_input.value(),
-                "dropout": self.dropout_input.value(),
-                "model_type": self.model_type_input.currentText(),
-                "model_path": self.model_input.currentText(),
-            }
-            
-            # Add segmentation-specific settings if available
-            if hasattr(self, 'copy_paste_input'):
-                settings["copy_paste"] = self.copy_paste_input.isChecked()
-            if hasattr(self, 'mask_ratio_input'):
-                settings["mask_ratio"] = self.mask_ratio_input.value()
-
-            self.project_manager.update_training_settings(settings)
-
-    def register_trained_model_to_project(self, model_path: str, accuracy: float = None):
-        """Registriert trainiertes Modell im Projekt"""
-        if hasattr(self, "project_manager") and self.project_manager:
-            training_params = {
-                "epochs": self.epochs_input.value(),
-                "lr0": self.lr_input.value(),
-                "batch": self.batch_input.value(),
-                "imgsz": self.imgsz_input.value(),
-                "model_type": self.model_type_input.currentText(),
-            }
-
-            timestamp = self.project_manager.register_new_model(
-                model_path, accuracy, training_params
+    def closeEvent(self, event):
+        """Handle window close event."""
+        if self.training_active:
+            reply = QMessageBox.question(
+                self, "Training Active",
+                "Training is currently running. Stop training and close?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-
-            # Workflow-Schritt markieren
-            self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
-            self.notify_main_menu()
-
-            return timestamp
-
-    def notify_main_menu(self):
-        """Informiert das Hauptmenü, den Workflow-Status zu aktualisieren."""
-        try:
-            from PyQt6.QtWidgets import QApplication
-            from gui.main_menu import MainMenu
-
-            for widget in QApplication.topLevelWidgets():
-                if isinstance(widget, MainMenu):
-                    widget.update_workflow_status()
-                    break
-        except Exception as e:
-            logger.error(f"Failed to notify main menu: {e}")
+            if reply == QMessageBox.StandardButton.Yes:
+                self.stop_training()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
