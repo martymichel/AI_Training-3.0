@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--momentum", type=float, required=True)
     parser.add_argument("--warmup_epochs", type=int, required=True)
     parser.add_argument("--warmup_momentum", type=float, required=True)
-    parser.add_argument("--box", type=int, required=True)
+    parser.add_argument("--box", type=float, required=True)
     parser.add_argument("--dropout", type=float, required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--experiment", required=True)
