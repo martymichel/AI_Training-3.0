@@ -12,6 +12,8 @@ import torch
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 import matplotlib.pyplot as plt
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 # Configure logging
 logger = logging.getLogger("Test-Annotation & KI-Modell Verifikation")
@@ -157,7 +159,7 @@ class OptimizeThresholdsWorker(QThread):
 
         for conf in conf_range:
             for iou in iou_range:
-                good_count = 0
+                correct_annotations = 0
                 total_images = len(self.image_list)
 
                 conf_threshold = np.clip(conf / 100.0, 0.01, 0.99)
@@ -178,26 +180,17 @@ class OptimizeThresholdsWorker(QThread):
                     )
                     
                     for img_path, result in zip(batch, results):
-                        gt_counter = Counter()
-                        annot_file = os.path.splitext(img_path)[0] + ".txt"
-                        if os.path.exists(annot_file):
-                            with open(annot_file, 'r') as f:
-                                for line in f:
-                                    parts = line.strip().split()
-                                    if len(parts) >= 5:
-                                        cls = int(float(parts[0]))
-                                        gt_counter[cls] += 1
+                        # Parse ground truth annotations
+                        gt_annotations = self.parse_ground_truth(img_path)
                         
-                        pred_counter = Counter()
-                        if hasattr(result, "boxes") and result.boxes is not None:
-                            for box in result.boxes:
-                                cls_pred = int(box.cls[0].cpu().numpy())
-                                pred_counter[cls_pred] += 1
+                        # Parse model predictions
+                        pred_annotations = self.parse_predictions(result, model)
                         
-                        if gt_counter == pred_counter:
-                            good_count += 1
+                        # Compare annotations
+                        if self.compare_annotations(gt_annotations, pred_annotations):
+                            correct_annotations += 1
                 
-                accuracy = (good_count / total_images) * 100
+                accuracy = (correct_annotations / total_images) * 100
 
                 search_history.append((
                     float(conf_threshold),
@@ -208,7 +201,7 @@ class OptimizeThresholdsWorker(QThread):
                 
                 self.logger.info(f"Results for conf={conf_threshold:.3f}, iou={iou_threshold:.3f}:")
                 self.logger.info(f"- Accuracy: {accuracy:.2f}%")
-                self.logger.info(f"- Correctly annotated: {good_count}/{total_images}")
+                self.logger.info(f"- Correctly annotated: {correct_annotations}/{total_images}")
                 if accuracy > best_result['accuracy']:
                     self.logger.info(f"=> New best result! Previous best: {best_result['accuracy']:.2f}%")
                 self.logger.info("-" * 30)
@@ -251,6 +244,10 @@ class OptimizeThresholdsWorker(QThread):
         try:
             model = YOLO(self.model_path)
             self.model = model
+            
+            # Detect if this is a segmentation model
+            is_segmentation = self.detect_model_type(model)
+            self.logger.info(f"Model type detected: {'Segmentation' if is_segmentation else 'Detection'}")
 
             # Determine output directory
             if not self.output_dir:
@@ -360,6 +357,20 @@ class OptimizeThresholdsWorker(QThread):
         except Exception as e:
             logger.error(f"Error during threshold optimization: {e}")
             self.optimization_finished.emit({})
+    
+    def detect_model_type(self, model):
+        """Detect if model is for segmentation or detection."""
+        try:
+            # Test on a dummy image to see what the model returns
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            results = model(dummy_img, verbose=False)
+            
+            # Check if model has segmentation capability
+            if hasattr(results[0], 'masks') and results[0].masks is not None:
+                return True
+            return False
+        except Exception:
+            return False
 
 class AnnotationWorker(QThread):
     """Worker thread for image annotation and verification."""
