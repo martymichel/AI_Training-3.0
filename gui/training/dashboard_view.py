@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QDialog,
     QDialogButtonBox,
+    QTextEdit,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -133,26 +134,23 @@ def create_dashboard_tabs(window):
     log_tab = QWidget()
     log_tab_layout = QVBoxLayout(log_tab)
     
-    # Log text area
-    log_text = QLabel("Training log will appear here...")
-    log_text.setWordWrap(True)
-    log_text.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+    # Log text area - QTextEdit for copy/paste functionality
+    log_text = QTextEdit()
+    log_text.setReadOnly(True)
+    log_text.setPlainText("Training log will appear here...")
     log_text.setStyleSheet("""
-        QLabel {
+        QTextEdit {
             background-color: #f5f5f5;
             border: 1px solid #ddd;
             border-radius: 5px;
             padding: 10px;
             font-family: monospace;
             color: #333333;
+            font-size: 12px;
         }
     """)
     
-    # Scroll area for log
-    log_scroll = QScrollArea()
-    log_scroll.setWidgetResizable(True)
-    log_scroll.setWidget(log_text)
-    log_tab_layout.addWidget(log_scroll)
+    log_tab_layout.addWidget(log_text)
     
     # Create metrics info tab
     metrics_tab = create_metrics_info_tab()
