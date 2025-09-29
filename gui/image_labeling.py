@@ -430,6 +430,9 @@ class ImageLabelingApp(QMainWindow):
         self.view = ZoomableGraphicsView(self.scene)
         self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         main_layout.addWidget(self.view, stretch=4)
+        
+        # Set initial drawing mode
+        self.scene.polygon_mode = False  # Start with bounding box mode
 
         # Sidebar setup
         sidebar_container = QWidget()
@@ -547,7 +550,16 @@ class ImageLabelingApp(QMainWindow):
         # Drawing mode selection
         mode_group = QWidget()
         mode_layout = QVBoxLayout(mode_group)
-        mode_layout.addWidget(QLabel("Zeichenmodus:"))
+        
+        # Add mode description
+        mode_label = QLabel("Zeichenmodus:")
+        mode_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        mode_layout.addWidget(mode_label)
+        
+        mode_desc = QLabel("⚠️ Achtung: Wechsel löscht alle bestehenden Annotationen im Bild!")
+        mode_desc.setStyleSheet("color: #d32f2f; font-size: 10px; font-weight: bold; padding: 4px;")
+        mode_desc.setWordWrap(True)
+        mode_layout.addWidget(mode_desc)
 
         self.mode_button_group = QButtonGroup()
         self.bbox_radio = QRadioButton("Bounding Box")
@@ -749,6 +761,51 @@ class ImageLabelingApp(QMainWindow):
 
     def change_drawing_mode(self, button):
         """Change between bounding box and polygon drawing modes."""
+        # Store current annotations before switching
+        self.store_annotations()
+        
+        # Check if there are annotations of the other type
+        current_image = self.image_files[self.current_index] if self.current_index >= 0 else None
+        if current_image and current_image in self.annotations:
+            current_annotations = self.annotations[current_image]
+            has_bboxes = any(ann[0] == 'bbox' for ann in current_annotations)
+            has_polygons = any(ann[0] == 'polygon' for ann in current_annotations)
+            
+            new_mode_is_polygon = (button == self.polygon_radio)
+            
+            # Check for conflicting annotations
+            if new_mode_is_polygon and has_bboxes:
+                reply = QMessageBox.question(
+                    self, "Zeichenmodus wechseln",
+                    "Sie wechseln zu Polygon-Modus, aber das aktuelle Bild hat Bounding Box Annotationen.\n\n"
+                    "Diese werden gelöscht! Möchten Sie fortfahren?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    # Revert radio button selection
+                    self.bbox_radio.setChecked(True)
+                    return
+                    
+            elif not new_mode_is_polygon and has_polygons:
+                reply = QMessageBox.question(
+                    self, "Zeichenmodus wechseln",
+                    "Sie wechseln zu Bounding Box-Modus, aber das aktuelle Bild hat Polygon Annotationen.\n\n"
+                    "Diese werden gelöscht! Möchten Sie fortfahren?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    # Revert radio button selection
+                    self.polygon_radio.setChecked(True)
+                    return
+            
+            # Clear conflicting annotations
+            if new_mode_is_polygon and has_bboxes:
+                # Remove all bbox annotations
+                self.annotations[current_image] = [ann for ann in current_annotations if ann[0] != 'bbox']
+            elif not new_mode_is_polygon and has_polygons:
+                # Remove all polygon annotations
+                self.annotations[current_image] = [ann for ann in current_annotations if ann[0] != 'polygon']
+        
         if button == self.bbox_radio:
             self.scene.polygon_mode = False
             self.setWindowTitle("Bounding Box Annotation Tool")
@@ -759,6 +816,10 @@ class ImageLabelingApp(QMainWindow):
         # Cancel any ongoing polygon drawing when switching modes
         if hasattr(self.scene, 'cancel_polygon'):
             self.scene.cancel_polygon()
+        
+        # Reload current image to update display
+        if current_image:
+            self.load_current_image()
 
     def change_active_class(self, index):
         if index < 0 or index >= len(self.classes):
@@ -968,10 +1029,25 @@ class ImageLabelingApp(QMainWindow):
             
         self.store_annotations()
         
+        # Determine which format to save based on current mode
+        save_polygons = self.scene.polygon_mode
+        save_bboxes = not self.scene.polygon_mode
+        
+        total_polygons = 0
+        total_bboxes = 0
+        ignored_annotations = 0
+        
         for image_path in self.image_files:
             base = os.path.splitext(os.path.basename(image_path))[0]
             txt_file = os.path.join(self.dest_dir, base + ".txt")
             ann_list = self.annotations.get(image_path, [])
+            
+            # Count annotations for user feedback
+            polygons_in_image = [ann for ann in ann_list if ann[0] == 'polygon']
+            bboxes_in_image = [ann for ann in ann_list if ann[0] == 'bbox']
+            total_polygons += len(polygons_in_image)
+            total_bboxes += len(bboxes_in_image)
+            
             # Always create a label file, even if no annotations exist
             with open(txt_file, 'w') as f:
                 for ann in ann_list:
@@ -981,27 +1057,54 @@ class ImageLabelingApp(QMainWindow):
                     ann_type = ann[0]
                     class_id = ann[1]
 
-                    if ann_type == 'bbox' and len(ann) == 6:
+                    if ann_type == 'bbox' and len(ann) == 6 and save_bboxes:
                         # Bounding box: class_id x_center y_center width height
                         _, class_id, x_center, y_center, width, height = ann
                         f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
 
-                    elif ann_type == 'polygon' and len(ann) >= 8:  # type + class_id + at least 6 coordinates (3 points)
+                    elif ann_type == 'polygon' and len(ann) >= 8 and save_polygons:  # type + class_id + at least 6 coordinates (3 points)
                         # YOLO11 Segmentation format: class_id x1 y1 x2 y2 x3 y3 ...
                         coords = ann[2:]  # Skip type and class_id
                         if len(coords) >= 6 and len(coords) % 2 == 0:  # Must have even number of coordinates
                             coords_str = ' '.join([f"{coord:.6f}" for coord in coords])
                             f.write(f"{class_id} {coords_str}\n")
+                    else:
+                        # Annotation ignored due to mode mismatch
+                        ignored_annotations += 1
+        
+        # Show user what was saved and what was ignored
+        if save_polygons:
+            mode_name = "Polygon (Segmentation)"
+            saved_count = total_polygons
+            ignored_count = total_bboxes
+            ignored_type = "Bounding Boxes"
+        else:
+            mode_name = "Bounding Box (Detection)"
+            saved_count = total_bboxes
+            ignored_count = total_polygons
+            ignored_type = "Polygone"
+        
+        message = f"Dataset im {mode_name} Format generiert!\n\n"
+        message += f"✅ Gespeichert: {saved_count} Annotationen\n"
+        
+        if ignored_count > 0:
+            message += f"⚠️ Ignoriert: {ignored_count} {ignored_type}\n"
+            message += f"(Grund: Aktueller Modus ist '{mode_name}')\n\n"
+            message += f"Tipp: Wechseln Sie den Zeichenmodus um alle Annotationen zu inkludieren."
             
-            dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
-            try:
-                shutil.copy(image_path, dest_image)
-            except Exception as e:
-                QMessageBox.warning(self, "Fehler", f"Bild konnte nicht kopiert werden: {e}")
+        # Show comprehensive feedback
+        QMessageBox.information(self, "Dataset generiert", message)
+            # Copy images
+            for image_path in self.image_files:
+                dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
+                try:
+                    shutil.copy(image_path, dest_image)
+                except Exception as e:
+                    QMessageBox.warning(self, "Fehler", f"Bild konnte nicht kopiert werden: {e}")
+        
         classes_file = os.path.join(self.dest_dir, "classes.txt")
         class_names = [name for name, _ in self.classes]
         utils.save_classes_file(classes_file, class_names)
-        QMessageBox.information(self, "Erfolg", "Dataset wurde generiert!")
 
         if hasattr(self, 'project_manager') and self.project_manager:
             self.save_classes_to_project()
