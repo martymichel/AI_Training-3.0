@@ -20,7 +20,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 import json
-import yaml
 
 
 # Set up logger
@@ -361,6 +360,57 @@ class LiveAnnotationApp(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "KI-Modell (.pt) auswählen", "", "PT Dateien (*.pt)")
         if file_path:
             self.model_line_edit.setText(file_path)
+            self.detect_and_show_model_type(file_path)
+
+    def detect_and_show_model_type(self, model_path):
+        """Detect and display model type."""
+        try:
+            from ultralytics import YOLO
+            model = YOLO(model_path)
+            
+            # Test on dummy image to detect capabilities
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            results = model(dummy_img, verbose=False)
+            
+            is_segmentation = False
+            if hasattr(results[0], 'masks'):
+                is_segmentation = True
+            
+            # Update UI
+            if is_segmentation:
+                self.model_type_label.setText("🎯 Segmentation Model erkannt\nUnterstützt Polygon-Annotationen")
+                self.model_type_label.setStyleSheet("""
+                    font-size: 14px;
+                    padding: 10px;
+                    background-color: #e8f5e8;
+                    border: 1px solid #4CAF50;
+                    border-radius: 5px;
+                    color: #2E7D32;
+                """)
+            else:
+                self.model_type_label.setText("📦 Detection Model erkannt\nUnterstützt Bounding-Box-Annotationen")
+                self.model_type_label.setStyleSheet("""
+                    font-size: 14px;
+                    padding: 10px;
+                    background-color: #e3f2fd;
+                    border: 1px solid #2196F3;
+                    border-radius: 5px;
+                    color: #1976D2;
+                """)
+            
+            self.model_type_group.setVisible(True)
+            
+        except Exception as e:
+            self.model_type_label.setText(f"❌ Fehler bei Model-Analyse: {str(e)}")
+            self.model_type_label.setStyleSheet("""
+                font-size: 12px;
+                padding: 10px;
+                background-color: #ffebee;
+                border: 1px solid #f44336;
+                border-radius: 5px;
+                color: #c62828;
+            """)
+            self.model_type_group.setVisible(True)
 
     def browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Test-Dataset auswählen")
