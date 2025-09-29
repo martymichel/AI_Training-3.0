@@ -36,7 +36,7 @@ class TrainSettingsWindow(QMainWindow):
         self.setGeometry(100, 100, 1400, 800)
         self.setWindowState(Qt.WindowState.WindowMaximized)
         
-        # Fixed independent styling
+        # Fixed independent styling - readable dark text on light background
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #ffffff;
@@ -134,6 +134,20 @@ class TrainSettingsWindow(QMainWindow):
                 font-family: 'Consolas', monospace;
                 font-size: 12px;
             }
+            QGroupBox {
+                font-weight: bold;
+                color: #2c3e50;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px 0 4px;
+                color: #2c3e50;
+            }
         """)
         
         # Training state
@@ -153,9 +167,6 @@ class TrainSettingsWindow(QMainWindow):
         self.init_ui()
         self.connect_signals()
         self.check_gpu_status()
-        
-        # Initialize model options AFTER UI is fully created
-        self.update_model_options()
         
         # Load project-specific settings if available
         if self.project_manager:
@@ -181,12 +192,15 @@ class TrainSettingsWindow(QMainWindow):
         main_splitter.addWidget(self.tabs)
         
         # Set initial splitter sizes - more space for dashboard
-        main_splitter.setSizes([350, 1050])
+        main_splitter.setSizes([380, 1020])
+        
+        # Initialize model options AFTER UI is fully created
+        self.update_model_options()
 
     def create_compact_settings_panel(self):
         """Create compact settings panel without excessive frames."""
         panel = QWidget()
-        panel.setFixedWidth(350)
+        panel.setFixedWidth(380)
         panel.setStyleSheet("""
             QWidget {
                 background-color: #f8f9fa;
@@ -195,7 +209,7 @@ class TrainSettingsWindow(QMainWindow):
         """)
         
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
         
         # Compact header
@@ -208,13 +222,12 @@ class TrainSettingsWindow(QMainWindow):
         header_label.setStyleSheet("color: #2c3e50; padding: 8px; background-color: #ffffff; border-radius: 4px;")
         layout.addWidget(header_label)
         
-        # Compact form layout for all settings
-        form_widget = QWidget()
-        form_widget.setStyleSheet("background-color: #ffffff; border-radius: 4px; padding: 4px;")
-        form_layout = QFormLayout(form_widget)
-        form_layout.setContentsMargins(12, 12, 12, 12)
-        form_layout.setVerticalSpacing(8)
-        form_layout.setHorizontalSpacing(8)
+        # Basic Settings Group - compact
+        basic_group = QGroupBox("Basic Settings")
+        basic_layout = QFormLayout(basic_group)
+        basic_layout.setContentsMargins(8, 12, 8, 8)
+        basic_layout.setVerticalSpacing(6)
+        basic_layout.setHorizontalSpacing(8)
         
         # Project directory
         project_layout = QHBoxLayout()
@@ -226,12 +239,12 @@ class TrainSettingsWindow(QMainWindow):
         project_browse.clicked.connect(self.browse_project)
         project_layout.addWidget(self.project_input)
         project_layout.addWidget(project_browse)
-        form_layout.addRow("Project Dir:", project_layout)
+        basic_layout.addRow("Project Dir:", project_layout)
         
         # Experiment name
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g., experiment_001")
-        form_layout.addRow("Experiment:", self.name_input)
+        basic_layout.addRow("Experiment:", self.name_input)
         
         # Data YAML file
         data_layout = QHBoxLayout()
@@ -243,13 +256,13 @@ class TrainSettingsWindow(QMainWindow):
         data_browse.clicked.connect(self.browse_data)
         data_layout.addWidget(self.data_input)
         data_layout.addWidget(data_browse)
-        form_layout.addRow("Dataset YAML:", data_layout)
+        basic_layout.addRow("Dataset YAML:", data_layout)
         
         # Model Type
         self.model_type_input = QComboBox()
         self.model_type_input.addItems(["Detection", "Segmentation", "Nachtraining"])
         self.model_type_input.currentTextChanged.connect(self.update_model_options)
-        form_layout.addRow("Model Type:", self.model_type_input)
+        basic_layout.addRow("Model Type:", self.model_type_input)
         
         # Model Selection Container
         self.model_container = QWidget()
@@ -290,14 +303,16 @@ class TrainSettingsWindow(QMainWindow):
         # Initially hide browse widget
         self.model_browse_widget.hide()
         
-        form_layout.addRow("Model:", self.model_container)
+        basic_layout.addRow("Model:", self.model_container)
         
-        # Training parameters in compact grid
-        params_widget = QWidget()
-        params_layout = QFormLayout(params_widget)
-        params_layout.setContentsMargins(0, 8, 0, 0)
-        params_layout.setVerticalSpacing(6)
-        params_layout.setHorizontalSpacing(6)
+        layout.addWidget(basic_group)
+        
+        # Training Parameters Group - compact
+        training_group = QGroupBox("Training Parameters")
+        training_layout = QFormLayout(training_group)
+        training_layout.setContentsMargins(8, 12, 8, 8)
+        training_layout.setVerticalSpacing(6)
+        training_layout.setHorizontalSpacing(6)
         
         # Epochs
         epochs_layout = QHBoxLayout()
@@ -314,7 +329,7 @@ class TrainSettingsWindow(QMainWindow):
         epochs_layout.addWidget(self.epochs_input)
         epochs_layout.addWidget(epochs_info)
         epochs_layout.addStretch()
-        params_layout.addRow("Epochs:", epochs_layout)
+        training_layout.addRow("Epochs:", epochs_layout)
         
         # Image Size
         imgsz_layout = QHBoxLayout()
@@ -332,67 +347,221 @@ class TrainSettingsWindow(QMainWindow):
         imgsz_layout.addWidget(self.imgsz_input)
         imgsz_layout.addWidget(imgsz_info)
         imgsz_layout.addStretch()
-        params_layout.addRow("Image Size:", imgsz_layout)
+        training_layout.addRow("Image Size:", imgsz_layout)
         
-        # Batch Size and Learning Rate in one row
-        batch_lr_layout = QHBoxLayout()
-        batch_lr_layout.setSpacing(8)
-        
-        # Batch
-        batch_sub_layout = QVBoxLayout()
-        batch_sub_layout.setSpacing(2)
-        batch_label = QLabel("Batch:")
-        batch_label.setStyleSheet("font-size: 12px;")
+        # Batch Size
+        batch_layout = QHBoxLayout()
+        batch_layout.setSpacing(4)
         self.batch_input = QDoubleSpinBox()
         self.batch_input.setRange(0.1, 128.0)
         self.batch_input.setValue(0.8)
         self.batch_input.setSingleStep(0.1)
-        self.batch_input.setFixedWidth(70)
-        batch_sub_layout.addWidget(batch_label)
-        batch_sub_layout.addWidget(self.batch_input)
+        self.batch_input.setFixedWidth(80)
+        batch_info = ParameterInfoButton(
+            "Batch size affects training speed and memory usage.\n"
+            "Auto-scaling: Values < 1.0 are percentage of available memory.\n"
+            "Manual: Integer values for fixed batch size."
+        )
+        batch_layout.addWidget(self.batch_input)
+        batch_layout.addWidget(batch_info)
+        batch_layout.addStretch()
+        training_layout.addRow("Batch:", batch_layout)
         
         # Learning Rate
-        lr_sub_layout = QVBoxLayout()
-        lr_sub_layout.setSpacing(2)
-        lr_label = QLabel("Learn Rate:")
-        lr_label.setStyleSheet("font-size: 12px;")
+        lr_layout = QHBoxLayout()
+        lr_layout.setSpacing(4)
         self.lr0_input = QDoubleSpinBox()
         self.lr0_input.setRange(0.0001, 0.1)
         self.lr0_input.setValue(0.005)
         self.lr0_input.setDecimals(4)
         self.lr0_input.setSingleStep(0.001)
         self.lr0_input.setFixedWidth(80)
-        lr_sub_layout.addWidget(lr_label)
-        lr_sub_layout.addWidget(self.lr0_input)
+        lr_info = ParameterInfoButton(
+            "Initial learning rate for optimizer.\n"
+            "Higher = faster learning but risk of instability.\n"
+            "Typical: 0.001-0.01 for AdamW optimizer."
+        )
+        lr_layout.addWidget(self.lr0_input)
+        lr_layout.addWidget(lr_info)
+        lr_layout.addStretch()
+        training_layout.addRow("Learning Rate:", lr_layout)
         
-        batch_lr_layout.addLayout(batch_sub_layout)
-        batch_lr_layout.addLayout(lr_sub_layout)
-        batch_lr_layout.addStretch()
+        layout.addWidget(training_group)
         
-        form_layout.addRow(batch_lr_layout)
+        # Advanced Parameters Group - compact
+        advanced_group = QGroupBox("Advanced Parameters")
+        advanced_layout = QFormLayout(advanced_group)
+        advanced_layout.setContentsMargins(8, 12, 8, 8)
+        advanced_layout.setVerticalSpacing(6)
+        advanced_layout.setHorizontalSpacing(6)
         
-        # Checkboxes in compact layout
-        checkboxes_layout = QVBoxLayout()
-        checkboxes_layout.setSpacing(4)
+        # Close Mosaic
+        close_mosaic_layout = QHBoxLayout()
+        close_mosaic_layout.setSpacing(4)
+        self.close_mosaic_input = QSpinBox()
+        self.close_mosaic_input.setRange(0, 50)
+        self.close_mosaic_input.setValue(10)
+        self.close_mosaic_input.setFixedWidth(60)
+        close_mosaic_info = ParameterInfoButton(
+            "Epoch to disable mosaic augmentation (recommended: 10).\n"
+            "Mosaic augmentation is disabled for the last N epochs.\n"
+            "This allows the model to learn on normal, non-augmented images."
+        )
+        close_mosaic_layout.addWidget(self.close_mosaic_input)
+        close_mosaic_layout.addWidget(close_mosaic_info)
+        close_mosaic_layout.addStretch()
+        advanced_layout.addRow("Close Mosaic:", close_mosaic_layout)
+        
+        # Momentum
+        momentum_layout = QHBoxLayout()
+        momentum_layout.setSpacing(4)
+        self.momentum_input = QDoubleSpinBox()
+        self.momentum_input.setRange(0.0, 1.0)
+        self.momentum_input.setValue(0.937)
+        self.momentum_input.setDecimals(3)
+        self.momentum_input.setSingleStep(0.01)
+        self.momentum_input.setFixedWidth(80)
+        momentum_info = ParameterInfoButton(
+            "Momentum factor for SGD-based optimizers.\n"
+            "Higher values provide more stability but slower convergence.\n"
+            "Typical range: 0.9-0.99"
+        )
+        momentum_layout.addWidget(self.momentum_input)
+        momentum_layout.addWidget(momentum_info)
+        momentum_layout.addStretch()
+        advanced_layout.addRow("Momentum:", momentum_layout)
+        
+        # Warmup Epochs
+        warmup_epochs_layout = QHBoxLayout()
+        warmup_epochs_layout.setSpacing(4)
+        self.warmup_epochs_input = QSpinBox()
+        self.warmup_epochs_input.setRange(0, 10)
+        self.warmup_epochs_input.setValue(3)
+        self.warmup_epochs_input.setFixedWidth(60)
+        warmup_epochs_info = ParameterInfoButton(
+            "Number of warmup epochs at the beginning of training.\n"
+            "Gradually increases learning rate from 0 to lr0.\n"
+            "Helps stabilize training start."
+        )
+        warmup_epochs_layout.addWidget(self.warmup_epochs_input)
+        warmup_epochs_layout.addWidget(warmup_epochs_info)
+        warmup_epochs_layout.addStretch()
+        advanced_layout.addRow("Warmup Epochs:", warmup_epochs_layout)
+        
+        # Warmup Momentum
+        warmup_momentum_layout = QHBoxLayout()
+        warmup_momentum_layout.setSpacing(4)
+        self.warmup_momentum_input = QDoubleSpinBox()
+        self.warmup_momentum_input.setRange(0.0, 1.0)
+        self.warmup_momentum_input.setValue(0.8)
+        self.warmup_momentum_input.setDecimals(3)
+        self.warmup_momentum_input.setSingleStep(0.01)
+        self.warmup_momentum_input.setFixedWidth(80)
+        warmup_momentum_info = ParameterInfoButton(
+            "Initial momentum during warmup phase.\n"
+            "Usually lower than final momentum.\n"
+            "Typical: 0.5-0.9"
+        )
+        warmup_momentum_layout.addWidget(self.warmup_momentum_input)
+        warmup_momentum_layout.addWidget(warmup_momentum_info)
+        warmup_momentum_layout.addStretch()
+        advanced_layout.addRow("Warmup Momentum:", warmup_momentum_layout)
+        
+        # Box Loss Weight
+        box_layout = QHBoxLayout()
+        box_layout.setSpacing(4)
+        self.box_input = QDoubleSpinBox()
+        self.box_input.setRange(1.0, 20.0)
+        self.box_input.setValue(7.5)
+        self.box_input.setDecimals(1)
+        self.box_input.setSingleStep(0.5)
+        self.box_input.setFixedWidth(80)
+        box_info = ParameterInfoButton(
+            "Weight for box regression loss.\n"
+            "Higher values emphasize accurate bounding box prediction.\n"
+            "Typical range: 5.0-10.0"
+        )
+        box_layout.addWidget(self.box_input)
+        box_layout.addWidget(box_info)
+        box_layout.addStretch()
+        advanced_layout.addRow("Box Loss Weight:", box_layout)
+        
+        # Dropout
+        dropout_layout = QHBoxLayout()
+        dropout_layout.setSpacing(4)
+        self.dropout_input = QDoubleSpinBox()
+        self.dropout_input.setRange(0.0, 0.8)
+        self.dropout_input.setValue(0.0)
+        self.dropout_input.setDecimals(2)
+        self.dropout_input.setSingleStep(0.1)
+        self.dropout_input.setFixedWidth(80)
+        dropout_info = ParameterInfoButton(
+            "Dropout probability for regularization.\n"
+            "Helps prevent overfitting on small datasets.\n"
+            "0.0 = no dropout, 0.1-0.3 for overfitting prevention."
+        )
+        dropout_layout.addWidget(self.dropout_input)
+        dropout_layout.addWidget(dropout_info)
+        dropout_layout.addStretch()
+        advanced_layout.addRow("Dropout:", dropout_layout)
+        
+        # Copy Paste (for segmentation)
+        copy_paste_layout = QHBoxLayout()
+        copy_paste_layout.setSpacing(4)
+        self.copy_paste_input = QDoubleSpinBox()
+        self.copy_paste_input.setRange(0.0, 1.0)
+        self.copy_paste_input.setValue(0.0)
+        self.copy_paste_input.setDecimals(2)
+        self.copy_paste_input.setSingleStep(0.1)
+        self.copy_paste_input.setFixedWidth(80)
+        copy_paste_info = ParameterInfoButton(
+            "Copy-paste augmentation probability (segmentation only).\n"
+            "Copies instances from one image to another.\n"
+            "Typical: 0.0-0.3 for segmentation models."
+        )
+        copy_paste_layout.addWidget(self.copy_paste_input)
+        copy_paste_layout.addWidget(copy_paste_info)
+        copy_paste_layout.addStretch()
+        advanced_layout.addRow("Copy Paste:", copy_paste_layout)
+        
+        # Mask Ratio (for segmentation)
+        mask_ratio_layout = QHBoxLayout()
+        mask_ratio_layout.setSpacing(4)
+        self.mask_ratio_input = QSpinBox()
+        self.mask_ratio_input.setRange(1, 8)
+        self.mask_ratio_input.setValue(4)
+        self.mask_ratio_input.setFixedWidth(60)
+        mask_ratio_info = ParameterInfoButton(
+            "Mask downsampling ratio for segmentation.\n"
+            "Higher values = faster training, lower accuracy.\n"
+            "Typical: 4 (good balance), 1 (best quality), 8 (fastest)."
+        )
+        mask_ratio_layout.addWidget(self.mask_ratio_input)
+        mask_ratio_layout.addWidget(mask_ratio_info)
+        mask_ratio_layout.addStretch()
+        advanced_layout.addRow("Mask Ratio:", mask_ratio_layout)
+        
+        layout.addWidget(advanced_group)
+        
+        # Training Options Group - compact checkboxes
+        options_group = QGroupBox("Training Options")
+        options_layout = QVBoxLayout(options_group)
+        options_layout.setContentsMargins(8, 12, 8, 8)
+        options_layout.setSpacing(4)
         
         self.resume_input = QCheckBox("Resume from last checkpoint")
         self.multi_scale_input = QCheckBox("Multi-scale training")
         self.cos_lr_input = QCheckBox("Cosine learning rate scheduler")
         self.cos_lr_input.setChecked(True)
         
-        checkboxes_layout.addWidget(self.resume_input)
-        checkboxes_layout.addWidget(self.multi_scale_input)
-        checkboxes_layout.addWidget(self.cos_lr_input)
+        options_layout.addWidget(self.resume_input)
+        options_layout.addWidget(self.multi_scale_input)
+        options_layout.addWidget(self.cos_lr_input)
         
-        form_layout.addRow("Options:", checkboxes_layout)
+        layout.addWidget(options_group)
         
-        layout.addWidget(form_widget)
-        
-        # Compact control section
-        control_widget = QWidget()
-        control_widget.setStyleSheet("background-color: #ffffff; border-radius: 4px;")
-        control_layout = QVBoxLayout(control_widget)
-        control_layout.setContentsMargins(8, 8, 8, 8)
+        # Control section - compact
+        control_layout = QVBoxLayout()
         control_layout.setSpacing(6)
         
         # Control buttons
@@ -442,7 +611,7 @@ class TrainSettingsWindow(QMainWindow):
         self.status_label.setStyleSheet("color: #2c3e50; font-weight: bold; font-size: 12px;")
         control_layout.addWidget(self.status_label)
         
-        layout.addWidget(control_widget)
+        layout.addLayout(control_layout)
         
         # GPU Status - very compact
         self.gpu_status_label = QLabel("Checking GPU...")
@@ -522,7 +691,7 @@ class TrainSettingsWindow(QMainWindow):
                     "yolo8l-seg.pt",
                     "yolo8x-seg.pt"
                 ]
-            else:  # detection (default)
+            else:  # detection
                 models = [
                     "yolo11n.pt",
                     "yolo11s.pt",
@@ -626,6 +795,14 @@ class TrainSettingsWindow(QMainWindow):
         lr0 = self.lr0_input.value()
         project = self.project_input.text()
         experiment = self.name_input.text()
+        close_mosaic = self.close_mosaic_input.value()
+        momentum = self.momentum_input.value()
+        warmup_epochs = self.warmup_epochs_input.value()
+        warmup_momentum = self.warmup_momentum_input.value()
+        box = self.box_input.value()
+        dropout = self.dropout_input.value()
+        copy_paste = self.copy_paste_input.value()
+        mask_ratio = self.mask_ratio_input.value()
         
         # Get model path
         model_type = self.model_type_input.currentText().lower()
@@ -662,14 +839,14 @@ class TrainSettingsWindow(QMainWindow):
             resume=self.resume_input.isChecked(),
             multi_scale=self.multi_scale_input.isChecked(),
             cos_lr=self.cos_lr_input.isChecked(),
-            close_mosaic=10,
-            momentum=0.937,
-            warmup_epochs=3,
-            warmup_momentum=0.8,
-            box=7.5,
-            dropout=0.0,
-            copy_paste=0.0,
-            mask_ratio=4,
+            close_mosaic=close_mosaic,
+            momentum=momentum,
+            warmup_epochs=warmup_epochs,
+            warmup_momentum=warmup_momentum,
+            box=box,
+            dropout=dropout,
+            copy_paste=copy_paste,
+            mask_ratio=mask_ratio,
             project=project,
             experiment=experiment,
             model_path=model_path
@@ -794,6 +971,14 @@ class TrainSettingsWindow(QMainWindow):
                 'imgsz': self.imgsz_input.value(),
                 'batch': self.batch_input.value(),
                 'lr0': self.lr0_input.value(),
+                'close_mosaic': self.close_mosaic_input.value(),
+                'momentum': self.momentum_input.value(),
+                'warmup_epochs': self.warmup_epochs_input.value(),
+                'warmup_momentum': self.warmup_momentum_input.value(),
+                'box': self.box_input.value(),
+                'dropout': self.dropout_input.value(),
+                'copy_paste': self.copy_paste_input.value(),
+                'mask_ratio': self.mask_ratio_input.value(),
                 'resume': self.resume_input.isChecked(),
                 'multi_scale': self.multi_scale_input.isChecked(),
                 'cos_lr': self.cos_lr_input.isChecked(),
