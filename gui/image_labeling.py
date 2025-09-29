@@ -1095,7 +1095,7 @@ class ImageLabelingApp(QMainWindow):
         # Show comprehensive feedback
         QMessageBox.information(self, "Dataset generiert", message)
             # Copy images
-            for image_path in self.image_files:
+        for image_path in self.image_files:
                 dest_image = os.path.join(self.dest_dir, os.path.basename(image_path))
                 try:
                     shutil.copy(image_path, dest_image)
