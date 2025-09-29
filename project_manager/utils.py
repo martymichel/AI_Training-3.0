@@ -3,9 +3,194 @@
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import logging
+import time
 import json
 
 logger = logging.getLogger(__name__)
+
+def detect_legacy_project(project_root: Path) -> bool:
+    """Detect if this is a legacy project structure.
+    
+    Args:
+        project_root: Path to potential project directory
+        
+    Returns:
+        bool: True if this appears to be a legacy project
+    """
+    try:
+        project_root = Path(project_root)
+        
+        # Check for new project structure first
+        if (project_root / ".project" / "config.json").exists():
+            return False
+        
+        # Check for legacy indicators
+        legacy_indicators = [
+            "01_raw_images",
+            "02_labeled", 
+            "03_augmented",
+            "04_splitted",
+            "05_models"
+        ]
+        
+        # If at least 2 legacy directories exist, consider it a legacy project
+        found_indicators = sum(1 for indicator in legacy_indicators 
+                              if (project_root / indicator).exists())
+        
+        # Also check for common files that indicate a project
+        file_indicators = [
+            "config.py",
+            "detection_settings.json",
+            "camera_settings.json"
+        ]
+        
+        found_files = sum(1 for indicator in file_indicators
+                         if (project_root / indicator).exists())
+        
+        return found_indicators >= 2 or found_files >= 1
+    
+    except Exception:
+        return False
+
+def migrate_legacy_project(project_root: Path) -> bool:
+    """Migrate a legacy project to new structure.
+    
+    Args:
+        project_root: Path to legacy project directory
+        
+    Returns:
+        bool: True if migration was successful
+    """
+    try:
+        project_root = Path(project_root)
+        
+        # Create .project directory
+        project_dir = project_root / ".project"
+        project_dir.mkdir(exist_ok=True)
+        
+        # Create config from legacy project
+        config_data = {
+            "project_name": project_root.name,
+            "project_root": str(project_root),
+            "created_date": "2024-01-01T00:00:00",  # Default date for legacy projects
+            "last_modified": "2024-01-01T00:00:00",
+            "description": "Migrated from legacy project structure",
+            "author": "",
+            "version": "1.0",
+            "classes": {},
+            "class_colors": {}
+        }
+        
+        # Try to extract classes from existing data
+        try:
+            # Look for classes.txt in labeled directory
+            classes_file = project_root / "02_labeled" / "classes.txt"
+            if classes_file.exists():
+                with open(classes_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                for i, line in enumerate(lines):
+                    class_name = line.strip()
+                    if class_name:
+                        config_data["classes"][i] = class_name
+                        # Assign default colors
+                        colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFA500", "#800080"]
+                        config_data["class_colors"][i] = colors[i % len(colors)]
+            
+            # Try to extract from yaml file
+            yaml_file = project_root / "04_splitted" / "data.yaml"
+            if yaml_file.exists() and not config_data["classes"]:
+                import yaml
+                with open(yaml_file, 'r', encoding='utf-8') as f:
+                    yaml_data = yaml.safe_load(f)
+                if 'names' in yaml_data:
+                    if isinstance(yaml_data['names'], dict):
+                        for class_id, class_name in yaml_data['names'].items():
+                            config_data["classes"][int(class_id)] = class_name
+                            colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFA500", "#800080"]
+                            config_data["class_colors"][int(class_id)] = colors[int(class_id) % len(colors)]
+                    elif isinstance(yaml_data['names'], list):
+                        for i, class_name in enumerate(yaml_data['names']):
+                            config_data["classes"][i] = class_name
+                            colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFA500", "#800080"]
+                            config_data["class_colors"][i] = colors[i % len(colors)]
+        
+        except Exception as e:
+            logger.warning(f"Could not extract classes from legacy project: {e}")
+        
+        # Save new config
+        config_file = project_dir / "config.json"
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        
+        # Create workflow status (mark completed steps based on existing directories)
+        workflow_status = []
+        
+        if (project_root / "01_raw_images").exists() and list((project_root / "01_raw_images").glob("*.jpg")):
+            workflow_status.append("camera")
+        
+        if (project_root / "02_labeled").exists() and list((project_root / "02_labeled").glob("*.jpg")):
+            workflow_status.append("labeling")
+        
+        if (project_root / "03_augmented").exists() and list((project_root / "03_augmented").glob("*.jpg")):
+            workflow_status.append("augmentation")
+        
+        if (project_root / "04_splitted").exists() and (project_root / "04_splitted" / "data.yaml").exists():
+            workflow_status.append("splitting")
+        
+        if (project_root / "05_models").exists() and list((project_root / "05_models").rglob("*.pt")):
+            workflow_status.append("training")
+        
+        if (project_root / "06_verification").exists():
+            workflow_status.append("verification")
+        
+        # Save workflow status
+        workflow_file = project_dir / "workflow_status.json"
+        workflow_data = {
+            "completed_steps": workflow_status,
+            "last_updated": str(time.time())
+        }
+        with open(workflow_file, 'w', encoding='utf-8') as f:
+            json.dump(workflow_data, f, indent=2)
+        
+        logger.info(f"Successfully migrated legacy project: {project_root.name}")
+        return True
+    
+    except Exception as e:
+        logger.error(f"Error migrating legacy project: {e}")
+        return False
+
+def get_legacy_projects() -> List[str]:
+    """Find all legacy projects in common locations.
+    
+    Returns:
+        List[str]: List of legacy project paths
+    """
+    legacy_projects = []
+    
+    # Common search locations
+    search_paths = [
+        Path.cwd(),
+        Path.home() / "AI_Projects",
+        Path.home() / "Documents" / "AI_Projects",
+        Path.home() / "Desktop",
+        # Add current directory parent (often where projects are)
+        Path.cwd().parent
+    ]
+    
+    for search_path in search_paths:
+        if not search_path.exists():
+            continue
+            
+        try:
+            for item in search_path.iterdir():
+                if item.is_dir() and detect_legacy_project(item):
+                    legacy_projects.append(str(item))
+        except PermissionError:
+            continue
+        except Exception as e:
+            logger.warning(f"Error scanning {search_path}: {e}")
+    
+    return list(set(legacy_projects))  # Remove duplicates
 
 def detect_annotation_format(label_files: List[Path]) -> str:
     """Detect annotation format from label files.

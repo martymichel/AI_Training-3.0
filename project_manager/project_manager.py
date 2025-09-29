@@ -10,7 +10,8 @@ from .workflow import WorkflowStep, WorkflowManager
 from .utils import (
     get_recommended_model_type, get_default_model_path, load_json_settings,
     save_json_settings, find_latest_model, get_next_experiment_name,
-    create_project_structure, validate_project_structure
+    create_project_structure, validate_project_structure, detect_legacy_project,
+    migrate_legacy_project
 )
 
 logger = logging.getLogger(__name__)
@@ -26,10 +27,27 @@ class ProjectManager:
         """
         self.project_root = Path(project_root)
         
-        # Validate project structure
+        # Check if this is a legacy project and migrate if needed
+        if detect_legacy_project(self.project_root):
+            logger.info(f"Detected legacy project: {self.project_root.name}")
+            
+            # Try to migrate automatically
+            if migrate_legacy_project(self.project_root):
+                logger.info(f"Successfully migrated legacy project: {self.project_root.name}")
+            else:
+                logger.warning(f"Could not migrate legacy project, using compatibility mode")
+                # Create minimal config for compatibility
+                self._create_minimal_config()
+        
+        # Validate project structure (now should be valid after migration)
         is_valid, error_msg = validate_project_structure(self.project_root)
         if not is_valid:
-            raise ValueError(f"Invalid project structure: {error_msg}")
+            # Try to create missing structure
+            try:
+                create_project_structure(self.project_root)
+                self._create_minimal_config()
+            except Exception as e:
+                raise ValueError(f"Invalid project structure and could not fix: {error_msg}")
         
         # Load configuration
         config_file = self.project_root / ".project" / "config.json"
@@ -39,6 +57,31 @@ class ProjectManager:
         self.workflow_manager = WorkflowManager(self.project_root)
         
         logger.info(f"Project manager initialized for: {self.config.project_name}")
+    
+    def _create_minimal_config(self):
+        """Create minimal config for legacy projects."""
+        try:
+            project_dir = self.project_root / ".project"
+            project_dir.mkdir(exist_ok=True)
+            
+            config_data = {
+                "project_name": self.project_root.name,
+                "project_root": str(self.project_root),
+                "created_date": "2024-01-01T00:00:00",
+                "last_modified": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "description": "Legacy project (automatically migrated)",
+                "author": "",
+                "version": "1.0",
+                "classes": {},
+                "class_colors": {}
+            }
+            
+            config_file = project_dir / "config.json"
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+                
+        except Exception as e:
+            logger.error(f"Error creating minimal config: {e}")
     
     def save_config(self):
         """Save current configuration."""

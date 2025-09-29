@@ -2,6 +2,7 @@
 
 import sys
 import os
+import time
 from pathlib import Path
 from typing import Optional, List
 import logging
@@ -15,7 +16,10 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap, QIcon
 
 from .config import ProjectConfig
-from .utils import validate_project_structure, get_project_info, create_project_structure
+from .utils import (
+    validate_project_structure, get_project_info, create_project_structure,
+    detect_legacy_project, migrate_legacy_project, get_legacy_projects
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +44,19 @@ class ProjectCard(QFrame):
         layout.setSpacing(5)
         
         # Get project info
-        project_info = get_project_info(Path(self.project_path))
+        try:
+            project_info = get_project_info(Path(self.project_path))
+        except Exception:
+            # Fallback for legacy projects
+            project_info = {
+                'project_name': Path(self.project_path).name,
+                'created_date': 'Unknown',
+                'last_modified': 'Legacy Project'
+            }
         
         # Project name
-        name_label = QLabel(project_info.get('project_name', 'Unknown Project'))
+        project_name = project_info.get('project_name', Path(self.project_path).name)
+        name_label = QLabel(project_name)
         name_font = QFont()
         name_font.setPointSize(14)
         name_font.setWeight(QFont.Weight.Bold)
@@ -59,7 +72,16 @@ class ProjectCard(QFrame):
         layout.addWidget(path_label)
         
         # Last modified
-        modified_label = QLabel(f"Modified: {project_info.get('last_modified', 'Unknown')[:10]}")
+        modified_info = project_info.get('last_modified', 'Unknown')
+        if modified_info != 'Unknown' and len(modified_info) > 10:
+            modified_info = modified_info[:10]
+        
+        # Add legacy indicator
+        legacy_indicator = ""
+        if detect_legacy_project(Path(self.project_path)):
+            legacy_indicator = " (Legacy)"
+        
+        modified_label = QLabel(f"Modified: {modified_info}{legacy_indicator}")
         modified_font = QFont()
         modified_font.setPointSize(9)
         modified_label.setFont(modified_font)
@@ -316,6 +338,7 @@ class ProjectManagerDialog(QDialog):
     def get_recent_projects(self) -> List[str]:
         """Get list of recent project paths."""
         recent_projects = []
+        legacy_projects = []
         
         # Look for projects in common locations
         search_paths = [
@@ -328,14 +351,49 @@ class ProjectManagerDialog(QDialog):
             if search_path.exists():
                 for item in search_path.iterdir():
                     if item.is_dir():
-                        is_valid, _ = validate_project_structure(item)
-                        if is_valid:
+                        # Check for new project structure
+                        is_new_valid, _ = validate_project_structure(item)
+                        if is_new_valid:
                             recent_projects.append(str(item))
+                        # Check for legacy project structure
+                        elif detect_legacy_project(item):
+                            legacy_projects.append(str(item))
         
-        return recent_projects[:10]  # Limit to 10 most recent
+        # Combine new and legacy projects, with new projects first
+        all_projects = recent_projects + legacy_projects
+        
+        return all_projects[:15]  # Limit to 15 most recent
     
     def select_project(self, project_path: str):
         """Select a project."""
+        # Check if this is a legacy project and offer migration
+        if detect_legacy_project(Path(project_path)):
+            reply = QMessageBox.question(
+                self, "Legacy Project Detected",
+                f"This appears to be an older project format.\n\n"
+                f"Would you like to migrate it to the new format?\n"
+                f"(This is safe and won't delete any data)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    if migrate_legacy_project(Path(project_path)):
+                        QMessageBox.information(
+                            self, "Migration Successful",
+                            "Project has been successfully migrated to the new format!"
+                        )
+                    else:
+                        QMessageBox.warning(
+                            self, "Migration Failed",
+                            "Could not migrate project. You can still use it, but some features may be limited."
+                        )
+                except Exception as e:
+                    QMessageBox.critical(
+                        self, "Migration Error",
+                        f"Error during migration: {str(e)}"
+                    )
+        
         self.selected_project_path = project_path
         self.ok_button.setEnabled(True)
         
