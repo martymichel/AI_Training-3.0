@@ -82,7 +82,7 @@ class TrainSettingsWindow(QWidget):
         # Model Type and Model Selection
         self.model_type_label = QLabel("Model-Typ:")
         self.model_type_input = QComboBox()
-        self.model_type_input.addItems(["Detection", "Segmentation"])
+        self.model_type_input.addItems(["Detection", "Segmentation", "Nachtraining"])
         self.model_type_input.currentTextChanged.connect(self.update_model_options)
         layout.addWidget(self.model_type_label)
         layout.addWidget(self.model_type_input)
@@ -90,9 +90,21 @@ class TrainSettingsWindow(QWidget):
         # Model Selection
         self.model_label = QLabel("Modell:")
         self.model_input = QComboBox()
-        self.model_input.setEditable(True)  # Allow custom model paths
+        self.model_input.setEditable(False)  # No custom model paths by default
         layout.addWidget(self.model_label)
         layout.addWidget(self.model_input)
+        
+        # Browse button for custom models (hidden by default)
+        self.model_browse_button = QPushButton("Modell-Datei auswählen...")
+        self.model_browse_button.clicked.connect(self.browse_model_file)
+        self.model_browse_button.hide()
+        layout.addWidget(self.model_browse_button)
+        
+        # Custom model path display (hidden by default)
+        self.custom_model_path = QLabel()
+        self.custom_model_path.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        self.custom_model_path.hide()
+        layout.addWidget(self.custom_model_path)
 
         # Optimizer Auswahl mit AdamW als Standard
         self.optimizer_label = QLabel("Optimizer:")
@@ -136,6 +148,9 @@ class TrainSettingsWindow(QWidget):
         # Initialize model options based on project manager
         self.initialize_model_settings()
 
+        # Initialize custom model path
+        self.selected_model_path = None
+
         # Hintergrundprüfung auf results.csv
         self.check_timer = QTimer()
         self.check_timer.setInterval(5000)  # Alle 5 Sekunden
@@ -166,13 +181,64 @@ class TrainSettingsWindow(QWidget):
             # Fallback to defaults
             self.update_model_options()
 
+    def browse_model_file(self):
+        """Browse for pre-trained model file for continual training."""
+        from PyQt6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Vortrainiertes Modell auswählen", 
+            "", 
+            "PyTorch Modelle (*.pt);;Alle Dateien (*)"
+        )
+        if file_path:
+            self.selected_model_path = file_path
+            model_name = os.path.basename(file_path)
+            self.custom_model_path.setText(f"Ausgewählt: {model_name}")
     def update_model_options(self):
         """Update available model options based on selected type."""
         model_type = self.model_type_input.currentText().lower()
 
         self.model_input.clear()
+        
+        # Show/hide browse controls based on model type
+        if model_type == "nachtraining":
+            # Hide dropdown, show browse button
+            self.model_input.hide()
+            self.model_browse_button.show()
+            self.custom_model_path.show()
+            self.model_label.setText("Vortrainiertes Modell:")
+            
+            # Load current model if available from project
+            if self.project_manager:
+                current_model = self.project_manager.get_latest_model_path()
+                if current_model and current_model.exists():
+                    self.custom_model_path.setText(f"Ausgewählt: {current_model.name}")
+                    self.selected_model_path = str(current_model)
+                else:
+                    self.custom_model_path.setText("Kein Modell ausgewählt - Bitte wählen Sie eine .pt Datei")
+                    self.selected_model_path = None
+            return
+        else:
+            # Show dropdown, hide browse button
+            self.model_input.show()
+            self.model_browse_button.hide()
+            self.custom_model_path.hide()
+            self.model_label.setText("Modell:")
 
         if model_type == "segmentation":
+            models = [
+                "yolo11n-seg.pt",
+                "yolo11s-seg.pt",
+                "yolo11m-seg.pt",
+                "yolo11l-seg.pt",
+                "yolo11x-seg.pt",
+                "yolo8n-seg.pt",
+                "yolo8s-seg.pt",
+                "yolo8m-seg.pt",
+                "yolo8l-seg.pt",
+                "yolo8x-seg.pt"
+            ]
+        else:  # detection
             models = [
                 "yolo11n-seg.pt",
                 "yolo11s-seg.pt",
@@ -184,9 +250,6 @@ class TrainSettingsWindow(QWidget):
             models = [
                 "yolo11n.pt",
                 "yolo11s.pt",
-                "yolo11m.pt",
-                "yolo11l.pt",
-                "yolo11x.pt"
             ]
 
         self.model_input.addItems(models)
@@ -215,7 +278,16 @@ class TrainSettingsWindow(QWidget):
         batch = self.batch_input.value()
         lr0 = self.lr_input.value()
         optimizer = self.optimizer_input.currentText()
-        model_path = self.model_input.currentText()
+        
+        # Get model path based on mode
+        model_type = self.model_type_input.currentText().lower()
+        if model_type == "nachtraining":
+            if not hasattr(self, 'selected_model_path') or not self.selected_model_path:
+                QMessageBox.warning(self, "Fehler", "Bitte wählen Sie ein vortrainiertes Modell für das Nachtraining aus.")
+                return
+            model_path = self.selected_model_path
+        else:
+            model_path = self.model_input.currentText()
 
         # Bereinige Eingaben (falls nötig)
         self.project = self.project_input.text() or "yolo_training_results"
@@ -227,7 +299,7 @@ class TrainSettingsWindow(QWidget):
             return
 
         if not model_path:
-            QMessageBox.warning(self, "Fehler", "Bitte wählen Sie ein Modell aus.")
+            QMessageBox.warning(self, "Fehler", "Bitte wählen Sie ein Modell aus oder wählen Sie eine Modell-Datei.")
             return
 
         self.progress_bar.setValue(0)
