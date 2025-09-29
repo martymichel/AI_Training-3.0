@@ -22,6 +22,9 @@ def detect_annotation_format(label_files: list) -> str:
     """
     has_bbox = False
     has_polygon = False
+    bbox_count = 0
+    polygon_count = 0
+    files_checked = 0
 
     for label_path in label_files[:10]:  # Check first 10 files for efficiency
         try:
@@ -32,6 +35,8 @@ def detect_annotation_format(label_files: list) -> str:
                 content = f.read().strip()
                 if not content:
                     continue
+                
+                files_checked += 1
 
                 for line in content.split('\n'):
                     line = line.strip()
@@ -44,19 +49,23 @@ def detect_annotation_format(label_files: list) -> str:
 
                     if len(parts) == 5:
                         has_bbox = True
+                        bbox_count += 1
                     elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
                         has_polygon = True
+                        polygon_count += 1
 
                     # Early exit if both found
                     if has_bbox and has_polygon:
-                        return 'mixed'
+                        # Check if this is consistently mixed or just inconsistent
+                        if files_checked >= 3:
+                            return f'mixed_inconsistent_bbox_{bbox_count}_poly_{polygon_count}'
         except:
             continue
 
     if has_polygon:
-        return 'polygon'
+        return f'polygon_{polygon_count}'
     elif has_bbox:
-        return 'bbox'
+        return f'bbox_{bbox_count}'
     else:
         return 'unknown'
 

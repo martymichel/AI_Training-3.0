@@ -987,7 +987,7 @@ class ImageLabelingApp(QMainWindow):
                         f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
 
                     elif ann_type == 'polygon' and len(ann) >= 8:  # type + class_id + at least 6 coordinates (3 points)
-                        # Polygon: class_id x1 y1 x2 y2 x3 y3 ...
+                        # YOLO11 Segmentation format: class_id x1 y1 x2 y2 x3 y3 ...
                         coords = ann[2:]  # Skip type and class_id
                         if len(coords) >= 6 and len(coords) % 2 == 0:  # Must have even number of coordinates
                             coords_str = ' '.join([f"{coord:.6f}" for coord in coords])
