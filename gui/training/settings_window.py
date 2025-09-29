@@ -916,10 +916,15 @@ class TrainSettingsWindow(QMainWindow):
         current_text = self.log_text.text()
         self.log_text.setText(current_text + message + "\n")
         
-        # Auto-scroll to bottom
-        scrollbar = self.log_text.parent().verticalScrollBar()
-        if scrollbar:
-            scrollbar.setValue(scrollbar.maximum())
+        # Auto-scroll to bottom - find the scroll area parent
+        parent = self.log_text.parent()
+        while parent:
+            if hasattr(parent, 'verticalScrollBar'):
+                scrollbar = parent.verticalScrollBar()
+                if scrollbar:
+                    scrollbar.setValue(scrollbar.maximum())
+                break
+            parent = parent.parent()
 
     def update_dashboard(self, df):
         """Update dashboard with new training data."""
