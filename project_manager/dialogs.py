@@ -343,8 +343,10 @@ class ProjectManagerDialog(QDialog):
         # Look for projects in common locations
         search_paths = [
             Path.cwd(),
+            Path("C:/Users/Michel/AI_Vision_Projects"),  # Your specific legacy location
             Path.home() / "AI_Projects",
-            Path.home() / "Documents" / "AI_Projects"
+            Path.home() / "Documents" / "AI_Projects",
+            Path.home() / "AI_Vision_Projects"  # Alternative location
         ]
         
         for search_path in search_paths:

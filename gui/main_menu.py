@@ -25,6 +25,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtGui import QFont, QPixmap, QAction, QPainter, QPen, QColor, QBrush
 from PyQt6.QtWidgets import QDialog, QMessageBox, QGraphicsDropShadowEffect
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ModernCard(QFrame):
     """Moderne Workflow-Karte mit sauberem Design"""

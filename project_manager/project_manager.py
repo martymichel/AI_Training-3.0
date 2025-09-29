@@ -171,6 +171,26 @@ class ProjectManager:
         """Get next experiment name for training."""
         return get_next_experiment_name(self.get_models_dir())
     
+    def get_last_experiment_name(self) -> str:
+        """Get the name of the last experiment (most recent)."""
+        try:
+            models_dir = self.get_models_dir()
+            if not models_dir.exists():
+                return "experiment_001"
+            
+            # Find all experiment directories
+            experiment_dirs = [d for d in models_dir.iterdir() if d.is_dir()]
+            if not experiment_dirs:
+                return "experiment_001"
+            
+            # Sort by modification time (most recent first)
+            experiment_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            return experiment_dirs[0].name
+        
+        except Exception as e:
+            logger.error(f"Error getting last experiment name: {e}")
+            return "experiment_001"
+    
     # ==================== YAML MANAGEMENT ====================
     
     def get_yaml_file(self) -> Path:
