@@ -1630,8 +1630,8 @@ class ProjectManager:
             
             # Entscheide basierend auf gefundenen Formaten
             if polygon_count > bbox_count:
-                return "segmentation"
-            else:
+            labeled_dir = self.get_labeled_dir()
+            if not labeled_dir.exists():
                 return "detection"
                 
     
