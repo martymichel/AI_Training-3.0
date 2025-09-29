@@ -35,6 +35,7 @@ logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logger.addHandler(ch)
+
 class TrainSettingsWindow(QMainWindow):
     """Main window for YOLO training with integrated dashboard."""
 
@@ -233,6 +234,40 @@ class TrainSettingsWindow(QMainWindow):
         # Set initial sizes
         self.splitter.setSizes([400, 800])
 
+        # Initialize UI state for model type
+        self.update_ui_for_model_type(self.model_type_input.currentText().lower())
+
+    def update_ui_for_model_type(self, model_type):
+        """Update UI visibility based on selected model type."""
+        is_segmentation = model_type == "segmentation"
+        
+        # Multi-scale training - hide for segmentation (not recommended)
+        self.multi_scale_label.setVisible(not is_segmentation)
+        self.multi_scale_input.setVisible(not is_segmentation)
+        self.multi_scale_info.setVisible(not is_segmentation)
+        
+        # Segmentation-specific parameters - show only for segmentation
+        self.copy_paste_label.setVisible(is_segmentation)
+        self.copy_paste_input.setVisible(is_segmentation)
+        self.copy_paste_info.setVisible(is_segmentation)
+        
+        self.mask_ratio_label.setVisible(is_segmentation)
+        self.mask_ratio_input.setVisible(is_segmentation)
+        self.mask_ratio_info.setVisible(is_segmentation)
+        
+        # Update batch size recommendations in tooltip
+        if is_segmentation:
+            # Update batch input info for segmentation
+            self.batch_input.setToolTip(
+                "Segmentierung benötigt mehr GPU-Speicher als Detection.\n"
+                "Reduzieren Sie diesen Wert bei Out-of-Memory-Fehlern."
+            )
+        else:
+            # Update batch input info for detection
+            self.batch_input.setToolTip(
+                "Detection Training ist speicher-effizienter als Segmentierung.\n"
+                "Höhere Werte sind meist möglich."
+            )
     def reset_form(self):
         """Reset form to default values."""
         if self.training_active:
@@ -268,6 +303,12 @@ class TrainSettingsWindow(QMainWindow):
         self.warmup_momentum_input.setValue(Config.training.warmup_momentum)
         self.box_input.setValue(Config.training.box)
         self.dropout_input.setValue(Config.training.dropout)
+        
+        # Reset segmentation-specific parameters
+        if hasattr(self, 'copy_paste_input'):
+            self.copy_paste_input.setChecked(False)
+        if hasattr(self, 'mask_ratio_input'):
+            self.mask_ratio_input.setValue(4)
 
         # Reset progress and logs
         self.progress_bar.setValue(0)
@@ -348,6 +389,14 @@ class TrainSettingsWindow(QMainWindow):
         warmup_momentum = self.warmup_momentum_input.value()
         box = self.box_input.value()
         dropout = self.dropout_input.value()
+        
+        # Get segmentation-specific parameters
+        copy_paste = 0.0
+        mask_ratio = 4
+        if hasattr(self, 'copy_paste_input') and self.copy_paste_input.isVisible():
+            copy_paste = 0.3 if self.copy_paste_input.isChecked() else 0.0
+        if hasattr(self, 'mask_ratio_input') and self.mask_ratio_input.isVisible():
+            mask_ratio = self.mask_ratio_input.value()
 
         # Get model selection
         model_path = getattr(self, 'model_input', None)
@@ -411,6 +460,8 @@ class TrainSettingsWindow(QMainWindow):
             warmup_momentum,
             box,
             dropout,
+            copy_paste,
+            mask_ratio,
             self.project,
             self.experiment,
             model_path,

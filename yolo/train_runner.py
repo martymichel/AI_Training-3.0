@@ -21,27 +21,55 @@ def main():
     parser.add_argument("--project", required=True)
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--model", default="yolo11n.pt")
+    parser.add_argument("--copy_paste", type=float, default=0.0)
+    parser.add_argument("--mask_ratio", type=int, default=4)
     args = parser.parse_args()
 
-    start_training(
-        args.data,
-        args.epochs,
-        args.imgsz,
-        args.batch,
-        args.lr0,
-        args.resume,
-        args.multi_scale,
-        args.cos_lr,
-        args.close_mosaic,
-        args.momentum,
-        args.warmup_epochs,
-        args.warmup_momentum,
-        args.box,
-        args.dropout,
-        args.project,
-        args.experiment,
-        model_path=args.model,
-    )
+    # Determine model type and call appropriate training function
+    is_segmentation = 'seg' in args.model.lower()
+    
+    if is_segmentation:
+        from yolo.yolo_train import start_segmentation_training
+        start_segmentation_training(
+            args.data,
+            args.epochs,
+            args.imgsz,
+            args.batch,
+            args.lr0,
+            args.resume,
+            args.multi_scale,
+            args.cos_lr,
+            args.close_mosaic,
+            args.momentum,
+            args.warmup_epochs,
+            args.warmup_momentum,
+            args.box,
+            args.dropout,
+            args.project,
+            args.experiment,
+            model_path=args.model,
+        )
+    else:
+        from yolo.yolo_train import start_detection_training
+        start_detection_training(
+            args.data,
+            args.epochs,
+            args.imgsz,
+            args.batch,
+            args.lr0,
+            args.resume,
+            args.multi_scale,
+            args.cos_lr,
+            args.close_mosaic,
+            args.momentum,
+            args.warmup_epochs,
+            args.warmup_momentum,
+            args.box,
+            args.dropout,
+            args.project,
+            args.experiment,
+            model_path=args.model,
+        )
 
 
 if __name__ == "__main__":

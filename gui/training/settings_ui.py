@@ -48,6 +48,10 @@ def update_model_options(window):
         except:
             pass  # Use first item as default
 
+    # Update UI visibility based on model type
+    if hasattr(window, 'update_ui_for_model_type'):
+        window.update_ui_for_model_type(model_type)
+
 def create_settings_ui(window):
     """Create and return the settings UI components."""
     # Scroll area for settings
@@ -98,6 +102,10 @@ def create_settings_ui(window):
     # Create advanced settings
     advanced_group = create_advanced_settings(window)
     settings_content_layout.addWidget(advanced_group)
+    
+    # Store references to groups for show/hide functionality
+    window.basic_group = basic_group
+    window.advanced_group = advanced_group
     
     # Add scroll area to settings panel
     window.settings_layout.addWidget(settings_scroll)
@@ -229,6 +237,9 @@ def create_basic_settings(window):
     # Update model options for the first time
     update_model_options(window)
 
+    # Store reference to model type selection for UI updates
+    window.model_type_selection = window.model_type_input
+
     # Basic training parameters
     training_group = QGroupBox("Basic Training Parameters")
     training_layout = QGridLayout(training_group)
@@ -265,12 +276,12 @@ def create_basic_settings(window):
     info_button = ParameterInfoButton(
         "Die Größe, auf die alle Trainingsbilder skaliert werden (in Pixeln).\n\n"
         "Empfehlungen:\n"
-        "- 320-416: Kleinere Bilder, schnell, für einfache Segmentierung\n"
+        "- 320-416: Kleinere Bilder, schnell\n"
         "- 640: Standardwert, gute Balance aus Geschwindigkeit und Genauigkeit\n"
         "- 832: Bessere Erkennung kleiner Details\n"
         "- 1024-1280: Höchste Genauigkeit, aber langsamer und benötigt mehr GPU-Speicher\n\n"
-        "Segmentierungsmodelle: Funktionieren mit beliebigen Bildgrößen und Seitenverhältnissen.\n"
-        "Detection-Modelle: Funktionieren am besten mit quadratischen Bildern.\n\n"
+        "Detection: Funktioniert am besten mit quadratischen Bildern.\n"
+        "Segmentation: Funktioniert mit verschiedenen Seitenverhältnissen, aber quadratisch ist optimal.\n\n"
         "Wichtig: Die Bildgröße sollte durch 32 teilbar sein (z.B. 320, 416, 640, 832, usw.)."
     )
     training_layout.addWidget(info_button, row, 3)
@@ -287,14 +298,15 @@ def create_basic_settings(window):
     
     info_button = ParameterInfoButton(
         "Die Batch-Größe bestimmt, wie viele Bilder gleichzeitig verarbeitet werden.\n\n"
-        "In YOLOv8 wird die Batch-Größe automatisch bestimmt, basierend auf dem verfügbaren "
+        "In YOLO11 wird die Batch-Größe automatisch bestimmt, basierend auf dem verfügbaren "
         "GPU-Speicher. Der Wert zwischen 0 und 1 gibt an, welcher Anteil des maximal möglichen "
         "Batch verwendet werden soll.\n\n"
         "Empfehlungen:\n"
         "- 0.5: Conservative (stabiler, aber langsamer)\n"
         "- 0.7: Balanced (gute Balance)\n"
         "- 0.9: Aggressive (schneller, aber kann zu Out-of-Memory führen)\n\n"
-        "Bei Out-of-Memory-Fehlern reduzieren Sie diesen Wert."
+        "Bei Out-of-Memory-Fehlern reduzieren Sie diesen Wert.\n"
+        "Segmentation benötigt mehr Speicher als Detection."
     )
     training_layout.addWidget(info_button, row, 3)
     
@@ -374,6 +386,7 @@ def create_advanced_settings(window):
     
     row += 1
     # Multi-scale training
+    window.multi_scale_row = row  # Store row for show/hide
     advanced_layout.addWidget(QLabel("Multi-Scale Training:"), row, 0)
     window.multi_scale_input = QCheckBox()
     # Apply same checkbox style
@@ -381,7 +394,7 @@ def create_advanced_settings(window):
     window.multi_scale_input.setChecked(Config.training.multi_scale)
     advanced_layout.addWidget(window.multi_scale_input, row, 1)
     
-    info_button = ParameterInfoButton(
+    window.multi_scale_info = ParameterInfoButton(
         "Wenn aktiviert, werden während des Trainings Bilder mit verschiedenen Größen verwendet.\n\n"
         "Vorteile:\n"
         "- Verbessert die Modellgeneralisierung auf verschiedene Bildgrößen\n"
@@ -389,9 +402,12 @@ def create_advanced_settings(window):
         "Nachteile:\n"
         "- Langsamer als Training mit fester Bildgröße\n"
         "- Kann mehr GPU-Speicher benötigen\n\n"
-        "Besonders nützlich für die Inspektion von Spritzgussteilen, wo Fehler in verschiedenen Größen auftreten können."
+        "HINWEIS: Für Segmentierung nicht empfohlen, da es die Masken-Qualität beeinträchtigen kann."
     )
-    advanced_layout.addWidget(info_button, row, 3)
+    advanced_layout.addWidget(window.multi_scale_info, row, 3)
+    
+    # Store widgets for show/hide functionality
+    window.multi_scale_label = advanced_layout.itemAtPosition(row, 0).widget()
     
     row += 1
     # Cosine LR scheduling
@@ -414,6 +430,53 @@ def create_advanced_settings(window):
         "In den meisten Fällen empfohlen, besonders für die präzise Erkennung von Fehlern in Spritzgussteilen."
     )
     advanced_layout.addWidget(info_button, row, 3)
+    
+    row += 1
+    # Copy-paste augmentation (segmentation only)
+    window.copy_paste_row = row  # Store row for show/hide
+    window.copy_paste_label = QLabel("Copy-Paste Augmentation:")
+    advanced_layout.addWidget(window.copy_paste_label, row, 0)
+    window.copy_paste_input = QCheckBox()
+    window.copy_paste_input.setStyleSheet(window.resume_input.styleSheet())
+    window.copy_paste_input.setChecked(False)  # Default off
+    advanced_layout.addWidget(window.copy_paste_input, row, 1)
+    
+    window.copy_paste_info = ParameterInfoButton(
+        "Copy-Paste Augmentation ist eine spezielle Technik für Segmentierung.\n\n"
+        "Funktionsweise:\n"
+        "- Kopiert Objekte (mit Masken) aus einem Bild in ein anderes\n"
+        "- Erhöht die Vielfalt der Objektpositionen und -kombinationen\n"
+        "- Besonders effektiv für Instanz-Segmentierung\n\n"
+        "Empfehlungen:\n"
+        "- 0.0-0.3: Moderate Anwendung (empfohlen)\n"
+        "- 0.5+: Aggressive Anwendung (kann Artefakte erzeugen)\n\n"
+        "Diese Augmentation ist nur für Segmentierungsmodelle verfügbar."
+    )
+    advanced_layout.addWidget(window.copy_paste_info, row, 3)
+    
+    row += 1
+    # Mask ratio (segmentation only)
+    window.mask_ratio_row = row  # Store row for show/hide
+    window.mask_ratio_label = QLabel("Mask Ratio:")
+    advanced_layout.addWidget(window.mask_ratio_label, row, 0)
+    window.mask_ratio_input = QSpinBox()
+    window.mask_ratio_input.setRange(1, 8)
+    window.mask_ratio_input.setValue(4)  # Default YOLO11 value
+    advanced_layout.addWidget(window.mask_ratio_input, row, 1)
+    
+    window.mask_ratio_info = ParameterInfoButton(
+        "Das Verhältnis der Masken-Auflösung zur Bild-Auflösung.\n\n"
+        "Funktionsweise:\n"
+        "- Bestimmt, wie detailliert die Segmentierungsmasken sind\n"
+        "- Niedrigere Werte = höhere Masken-Auflösung = mehr Details\n"
+        "- Höhere Werte = niedrigere Masken-Auflösung = weniger Details\n\n"
+        "Empfehlungen:\n"
+        "- 4: Standardwert, gute Balance aus Detail und Performance\n"
+        "- 2: Höhere Auflösung für sehr detaillierte Segmentierung\n"
+        "- 8: Niedrigere Auflösung für schnelleres Training\n\n"
+        "Diese Einstellung ist nur für Segmentierungsmodelle relevant."
+    )
+    advanced_layout.addWidget(window.mask_ratio_info, row, 3)
     
     row += 1
     # Close mosaic
@@ -545,6 +608,9 @@ def create_advanced_settings(window):
         "die Robustheit gegenüber verschiedenen Fehlerdarstellungen zu verbessern."
     )
     advanced_layout.addWidget(info_button, row, 3)
+    
+    # Store advanced layout reference for dynamic UI updates
+    window.advanced_layout = advanced_layout
     
     return advanced_frame
 
