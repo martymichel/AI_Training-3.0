@@ -106,6 +106,42 @@ class NewProjectDialog(QDialog):
         self.setModal(True)
         self.setFixedSize(500, 400)
         
+        # Set professional styling
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+                color: #212529;
+            }
+            QLabel {
+                color: #212529;
+                font-weight: 500;
+                padding: 4px;
+            }
+            QLineEdit, QTextEdit {
+                background-color: white;
+                border: 2px solid #dee2e6;
+                border-radius: 6px;
+                padding: 8px;
+                color: #212529;
+                font-size: 14px;
+            }
+            QLineEdit:focus, QTextEdit:focus {
+                border-color: #007bff;
+            }
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 24px;
+                font-weight: 600;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+        """)
+        
         layout = QVBoxLayout(self)
         
         # Project name
