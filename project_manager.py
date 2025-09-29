@@ -1594,7 +1594,7 @@ class ProjectManager:
     def get_recommended_model_type(self) -> str:
         """Empfiehlt Modell-Typ basierend auf Annotation-Typ."""
         annotation_type = self.detect_annotation_type()
-            # Prüfe ob Annotationen vorhanden sind
+        labeled_dir = self.get_labeled_dir()
             labeled_dir = self.get_labeled_dir()
             if not labeled_dir.exists():
                 return "detection"  # Default wenn keine Daten vorhanden
