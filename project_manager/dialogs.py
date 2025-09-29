@@ -36,6 +36,7 @@ class ProjectCard(QFrame):
     def init_ui(self):
         """Initialize the project card UI."""
         self.setFrameStyle(QFrame.Shape.StyledPanel)
+        self.setObjectName("projectCard")  # For CSS targeting
         self.setFixedHeight(120)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -89,17 +90,7 @@ class ProjectCard(QFrame):
         layout.addWidget(modified_label)
         
         # Styling
-        self.setStyleSheet("""
-            ProjectCard {
-                background-color: white;
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
-            }
-            ProjectCard:hover {
-                border-color: #2196F3;
-                background-color: #f5f5f5;
-            }
-        """)
+        # Styling wird über parent dialog gesetzt
     
     def mousePressEvent(self, event):
         """Handle mouse click events."""
@@ -234,6 +225,49 @@ class ProjectManagerDialog(QDialog):
     
     def init_ui(self):
         """Initialize the dialog UI."""
+        # Set fixed, professional styling for readability
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+                color: #212529;
+            }
+            QLabel {
+                color: #212529;
+                font-weight: 500;
+                padding: 4px;
+            }
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 24px;
+                font-weight: 600;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+                color: #dee2e6;
+            }
+            QFrame#projectCard {
+                background-color: white;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+            }
+            QFrame#projectCard:hover {
+                border-color: #007bff;
+                background-color: #f8f9fa;
+            }
+            QScrollArea {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+            }
+        """)
+        
         layout = QVBoxLayout(self)
         
         # Header

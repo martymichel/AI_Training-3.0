@@ -238,19 +238,22 @@ class TrainSettingsWindow(QWidget):
                 "yolo8l-seg.pt",
                 "yolo8x-seg.pt"
             ]
-        else:  # detection
-            models = [
-                "yolo11n-seg.pt",
-                "yolo11s-seg.pt",
-                "yolo11m-seg.pt",
-                "yolo11l-seg.pt",
-                "yolo11x-seg.pt"
-            ]
-        else:  # detection
+        elif model_type == "detection":
             models = [
                 "yolo11n.pt",
                 "yolo11s.pt",
+                "yolo11m.pt",
+                "yolo11l.pt",
+                "yolo11x.pt",
+                "yolo8n.pt",
+                "yolo8s.pt",
+                "yolo8m.pt",
+                "yolo8l.pt",
+                "yolo8x.pt"
             ]
+        else:
+            # Fallback für unbekannte Typen
+            models = ["yolo11n.pt"]
 
         self.model_input.addItems(models)
 
