@@ -316,10 +316,15 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
 def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr, close_mosaic,
                    momentum, warmup_epochs, warmup_momentum, box, dropout, copy_paste, mask_ratio,
                    project, name, model_path="yolo11n.pt", model_type="detection", progress_callback=None, log_callback=None):
-    """Start YOLO training with explicit model type selection."""
+    """Start YOLO training with STRICT explicit model type selection."""
     try:
-        # Use explicit model type instead of automatic detection
-        is_segmentation = model_type.lower() == "segmentation"
+        # STRICT explicit model type - no automatic detection whatsoever
+        explicit_model_type = str(model_type).lower().strip()
+        is_segmentation = explicit_model_type == "segmentation"
+        
+        logger.info(f"EXPLICIT MODEL TYPE: {explicit_model_type}")
+        logger.info(f"IS_SEGMENTATION: {is_segmentation}")
+        logger.info(f"MODEL_PATH: {model_path}")
         
         if is_segmentation:
             logger.info("Using segmentation training pipeline")
