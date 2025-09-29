@@ -25,51 +25,29 @@ def main():
     parser.add_argument("--mask_ratio", type=int, default=4)
     args = parser.parse_args()
 
-    # Determine model type and call appropriate training function
-    is_segmentation = 'seg' in args.model.lower()
-    
-    if is_segmentation:
-        from yolo.yolo_train import start_segmentation_training
-        start_segmentation_training(
-            args.data,
-            args.epochs,
-            args.imgsz,
-            args.batch,
-            args.lr0,
-            args.resume,
-            args.multi_scale,
-            args.cos_lr,
-            args.close_mosaic,
-            args.momentum,
-            args.warmup_epochs,
-            args.warmup_momentum,
-            args.box,
-            args.dropout,
-            args.project,
-            args.experiment,
-            model_path=args.model,
-        )
-    else:
-        from yolo.yolo_train import start_detection_training
-        start_detection_training(
-            args.data,
-            args.epochs,
-            args.imgsz,
-            args.batch,
-            args.lr0,
-            args.resume,
-            args.multi_scale,
-            args.cos_lr,
-            args.close_mosaic,
-            args.momentum,
-            args.warmup_epochs,
-            args.warmup_momentum,
-            args.box,
-            args.dropout,
-            args.project,
-            args.experiment,
-            model_path=args.model,
-        )
+    # Use the unified training function which automatically selects the right pipeline
+    from yolo.yolo_train import start_training
+    start_training(
+        data_path=args.data,
+        epochs=args.epochs,
+        imgsz=args.imgsz,
+        batch=args.batch,
+        lr0=args.lr0,
+        resume=args.resume,
+        multi_scale=args.multi_scale,
+        cos_lr=args.cos_lr,
+        close_mosaic=args.close_mosaic,
+        momentum=args.momentum,
+        warmup_epochs=args.warmup_epochs,
+        warmup_momentum=args.warmup_momentum,
+        box=args.box,
+        dropout=args.dropout,
+        copy_paste=args.copy_paste,
+        mask_ratio=args.mask_ratio,
+        project=args.project,
+        name=args.experiment,
+        model_path=args.model,
+    )
 
 
 if __name__ == "__main__":

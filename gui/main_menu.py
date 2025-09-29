@@ -932,7 +932,16 @@ class MainMenu(QMainWindow):
         """Öffnet Training-Window mit Projekt-Kontext"""
         if 'training' not in self.windows:
             from gui.training.settings_window import TrainSettingsWindow
-            app = TrainSettingsWindow(project_manager=self.project_manager)
+            try:
+                app = TrainSettingsWindow(project_manager=self.project_manager)
+            except Exception as e:
+                logger.error(f"Error creating training window: {e}")
+                QMessageBox.critical(
+                    self, "Error", 
+                    f"Failed to open training window:\n{str(e)}\n\n"
+                    "Please check the log for more details."
+                )
+                return
             
             # Automatische Pfad-Setzung
             # Store training outputs inside the project's "05_models" directory

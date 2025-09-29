@@ -58,13 +58,13 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
         workers = get_optimal_workers()
         
         # Adjust batch size based on GPU memory
-        if batch > batch_scale:
-            logger.warning(f"Reducing batch size from {batch} to {batch_scale} due to GPU memory constraints")
-            batch = batch_scale
+        actual_batch = int(batch * batch_scale * 16) if batch < 1.0 else int(batch)
+        if actual_batch <= 0:
+            actual_batch = 1
 
         logger.info(f"Starting Detection Training")
         logger.info(f"Using device: {device}")
-        logger.info(f"Batch size: {batch}")
+        logger.info(f"Batch size: {actual_batch}")
         logger.info(f"Workers: {workers}")
         
         # Initialize detection model
@@ -76,7 +76,7 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
             log_callback(f"Data path: {data_path}")
             log_callback(f"Epochs: {epochs}")
             log_callback(f"Image size: {imgsz}")
-            log_callback(f"Batch: {batch}")
+            log_callback(f"Batch: {actual_batch}")
             log_callback(f"Learning rate: {lr0}")
             log_callback(f"Device: {device}")
             log_callback(f"Model: {model_path}")
@@ -96,9 +96,9 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
             'data': data_path,
             'epochs': epochs,
             'imgsz': imgsz,
-            'batch': batch,
+            'batch': actual_batch,
             'lr0': lr0,
-            'optimizer': 'AdamW',  # Best optimizer for detection
+            'optimizer': 'AdamW',
             'device': device,
             'project': project,
             'name': name,
@@ -108,40 +108,40 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
             'save': True,
             'val': True,
             'verbose': True,
-            'patience': 50,  # Early stopping patience for detection
+            'patience': 50,
             # Detection-specific loss weights
-            'box': box,      # Box loss gain (user-defined)
-            'cls': 0.5,      # Classification loss gain
-            'dfl': 1.5,      # Distribution focal loss gain
-            # Training hyperparameters optimized for detection
+            'box': box,
+            'cls': 0.5,
+            'dfl': 1.5,
+            # Training hyperparameters
             'cos_lr': cos_lr,
             'close_mosaic': close_mosaic,
             'momentum': momentum,
             'warmup_epochs': warmup_epochs,
             'warmup_momentum': warmup_momentum,
-            'weight_decay': 0.0005,  # L2 regularization
+            'weight_decay': 0.0005,
             'dropout': dropout,
             # Detection-optimized augmentation
-            'hsv_h': 0.015,    # HSV-Hue augmentation
-            'hsv_s': 0.7,      # HSV-Saturation augmentation
-            'hsv_v': 0.4,      # HSV-Value augmentation
-            'degrees': 0.0,     # Image rotation (use 0 for controlled training)
-            'translate': 0.1,   # Image translation
-            'scale': 0.5,       # Image scale
-            'shear': 0.0,       # Image shear
-            'perspective': 0.0, # Image perspective
-            'flipud': 0.0,      # Vertical flip probability
-            'fliplr': 0.5,      # Horizontal flip probability
-            'mosaic': 1.0,      # Mosaic augmentation probability
-            'mixup': 0.0,       # Mixup augmentation (usually 0 for detection)
-            'copy_paste': 0.0,  # Copy-paste augmentation
-            'seed': 42          # Fixed seed for reproducibility
+            'hsv_h': 0.015,
+            'hsv_s': 0.7,
+            'hsv_v': 0.4,
+            'degrees': 0.0,
+            'translate': 0.1,
+            'scale': 0.5,
+            'shear': 0.0,
+            'perspective': 0.0,
+            'flipud': 0.0,
+            'fliplr': 0.5,
+            'mosaic': 1.0,
+            'mixup': 0.0,
+            'copy_paste': 0.0,
+            'seed': 42
         }
 
         # Add multi-scale training if requested
         if multi_scale:
-            train_args['rect'] = False  # Disable rectangular training for multi-scale
-            train_args['cache'] = False  # Disable cache for multi-scale
+            train_args['rect'] = False
+            train_args['cache'] = False
 
         # Start detection training
         if log_callback:
@@ -158,9 +158,7 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
         return results
     
     except torch.cuda.OutOfMemoryError:
-        error_msg = (
-            "GPU memory exhausted! Try reducing batch size or image size for detection training."
-        )
+        error_msg = "GPU memory exhausted! Try reducing batch size or image size for detection training."
         logger.error(error_msg)
         if progress_callback:
             progress_callback(0, error_msg)
@@ -174,7 +172,8 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
 
 def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr,
                               close_mosaic, momentum, warmup_epochs, warmup_momentum, box, dropout,
-                              project, name, model_path="yolo11n-seg.pt", progress_callback=None, log_callback=None):
+                              copy_paste, mask_ratio, project, name, model_path="yolo11n-seg.pt", 
+                              progress_callback=None, log_callback=None):
     """Start YOLO segmentation training optimized for instance segmentation."""
     try:
         setup_logging()
@@ -184,14 +183,14 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
         workers = get_optimal_workers()
         
         # Segmentation typically needs more memory, so be more conservative
-        segmentation_batch_scale = batch_scale * 0.7  # Reduce by 30% for segmentation
-        if batch > segmentation_batch_scale:
-            logger.warning(f"Reducing batch size from {batch} to {segmentation_batch_scale} for segmentation training")
-            batch = segmentation_batch_scale
+        segmentation_batch_scale = batch_scale * 0.6  # Reduce by 40% for segmentation
+        actual_batch = int(batch * segmentation_batch_scale * 12) if batch < 1.0 else int(batch)
+        if actual_batch <= 0:
+            actual_batch = 1
 
         logger.info(f"Starting Segmentation Training")
         logger.info(f"Using device: {device}")
-        logger.info(f"Batch size: {batch}")
+        logger.info(f"Batch size: {actual_batch}")
         logger.info(f"Workers: {workers}")
         
         # Initialize segmentation model
@@ -203,10 +202,12 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
             log_callback(f"Data path: {data_path}")
             log_callback(f"Epochs: {epochs}")
             log_callback(f"Image size: {imgsz}")
-            log_callback(f"Batch: {batch}")
+            log_callback(f"Batch: {actual_batch}")
             log_callback(f"Learning rate: {lr0}")
             log_callback(f"Device: {device}")
             log_callback(f"Model: {model_path}")
+            log_callback(f"Copy-paste: {copy_paste}")
+            log_callback(f"Mask ratio: {mask_ratio}")
 
         # Check if resume is requested and checkpoint exists
         if resume:
@@ -223,9 +224,9 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
             'data': data_path,
             'epochs': epochs,
             'imgsz': imgsz,
-            'batch': batch,
+            'batch': actual_batch,
             'lr0': lr0,
-            'optimizer': 'AdamW',  # Best optimizer for segmentation
+            'optimizer': 'AdamW',
             'device': device,
             'project': project,
             'name': name,
@@ -235,12 +236,12 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
             'save': True,
             'val': True,
             'verbose': True,
-            'patience': 100,  # Higher patience for segmentation (more complex task)
+            'patience': 100,  # Higher patience for segmentation
             # Segmentation-specific loss weights
-            'box': box * 0.8,    # Slightly reduced box loss for segmentation
-            'cls': 0.5,          # Classification loss gain
-            'dfl': 1.5,          # Distribution focal loss gain
-            # Training hyperparameters optimized for segmentation
+            'box': box * 0.8,    # Slightly reduced for segmentation
+            'cls': 0.5,
+            'dfl': 1.5,
+            # Training hyperparameters
             'cos_lr': cos_lr,
             'close_mosaic': close_mosaic,
             'momentum': momentum,
@@ -249,35 +250,33 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
             'weight_decay': 0.0005,
             'dropout': dropout,
             # Segmentation-optimized augmentation (more conservative)
-            'hsv_h': 0.01,      # Reduced HSV augmentation for segmentation
-            'hsv_s': 0.5,       # Reduced saturation changes
-            'hsv_v': 0.3,       # Reduced value changes
-            'degrees': 0.0,     # No rotation for segmentation (can distort masks)
+            'hsv_h': 0.01,
+            'hsv_s': 0.5,
+            'hsv_v': 0.3,
+            'degrees': 0.0,     # No rotation for segmentation
             'translate': 0.05,  # Reduced translation
             'scale': 0.3,       # Reduced scale changes
             'shear': 0.0,       # No shear (bad for masks)
             'perspective': 0.0, # No perspective (bad for masks)
             'flipud': 0.0,      # No vertical flip
-            'fliplr': 0.3,      # Reduced horizontal flip probability
+            'fliplr': 0.3,      # Reduced horizontal flip
             'mosaic': 0.8,      # Reduced mosaic for better mask quality
             'mixup': 0.0,       # No mixup (can corrupt masks)
-            'copy_paste': 0.3,  # Copy-paste augmentation (segmentation-specific)
-            'seed': 42,         # Fixed seed for reproducibility
+            'copy_paste': copy_paste,  # Segmentation-specific
+            'seed': 42,
             # Segmentation-specific parameters
-            'overlap_mask': True,     # Allow overlapping masks
-            'mask_ratio': 4,          # Mask downsampling ratio
-            'retina_masks': False,    # Use standard mask resolution
+            'overlap_mask': True,
+            'mask_ratio': mask_ratio,
+            'retina_masks': False,
+            'rect': False,      # Always disabled for segmentation
+            'cache': False,     # Disabled for segmentation (memory intensive)
         }
 
-        # Multi-scale is generally not recommended for segmentation due to mask complexity
+        # Multi-scale is not recommended for segmentation
         if multi_scale:
             logger.warning("Multi-scale training is not recommended for segmentation due to mask complexity")
             if log_callback:
                 log_callback("Warning: Multi-scale disabled for segmentation training")
-        
-        # Always disable rect for segmentation (rectangular training doesn't work well with masks)
-        train_args['rect'] = False
-        train_args['cache'] = False  # Disable cache for segmentation (memory intensive)
 
         # Start segmentation training
         if log_callback:
@@ -310,8 +309,8 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
         raise
 
 def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr, close_mosaic,
-                   momentum, warmup_epochs, warmup_momentum, box, dropout, project, name,
-                   model_path="yolo11n.pt", progress_callback=None, log_callback=None):
+                   momentum, warmup_epochs, warmup_momentum, box, dropout, copy_paste, mask_ratio,
+                   project, name, model_path="yolo11n.pt", progress_callback=None, log_callback=None):
     """Start YOLO training with automatic detection/segmentation selection."""
     try:
         # Determine if this is a segmentation model
@@ -324,7 +323,7 @@ def start_training(data_path, epochs, imgsz, batch, lr0, resume, multi_scale, co
             return start_segmentation_training(
                 data_path, epochs, imgsz, batch, lr0, resume, multi_scale, cos_lr,
                 close_mosaic, momentum, warmup_epochs, warmup_momentum, box, dropout,
-                project, name, model_path, progress_callback, log_callback
+                copy_paste, mask_ratio, project, name, model_path, progress_callback, log_callback
             )
         else:
             logger.info("Detected detection model, using detection training pipeline")
@@ -365,6 +364,8 @@ def start_training_threaded(data_path, epochs, imgsz, batch, lr0, optimizer, aug
                 warmup_momentum=0.8,
                 box=7.5,
                 dropout=0.0,
+                copy_paste=0.0,
+                mask_ratio=4,
                 project=project,
                 name=name,
                 model_path=model_path,

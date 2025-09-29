@@ -48,8 +48,10 @@ def update_model_options(window):
         except:
             pass  # Use first item as default
 
-    # Update UI visibility based on model type
-    if hasattr(window, 'update_ui_for_model_type'):
+    # Only update UI if all elements exist (after complete initialization)
+    if (hasattr(window, 'multi_scale_label') and 
+        hasattr(window, 'copy_paste_label') and 
+        hasattr(window, 'mask_ratio_label')):
         window.update_ui_for_model_type(model_type)
 
 def create_settings_ui(window):
@@ -91,7 +93,7 @@ def create_settings_ui(window):
     settings_title = QLabel("Training Configuration")
     settings_title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
     settings_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    settings_title.setMaximumHeight(30)  # Reduced height
+    settings_title.setMaximumHeight(30)
     settings_title.setStyleSheet("margin-bottom: 5px; color: #2d3748;")
     settings_content_layout.addWidget(settings_title)
     
@@ -107,6 +109,9 @@ def create_settings_ui(window):
     window.basic_group = basic_group
     window.advanced_group = advanced_group
     
+    # NOW update model options after all UI elements are created
+    update_model_options(window)
+    
     # Add scroll area to settings panel
     window.settings_layout.addWidget(settings_scroll)
     
@@ -117,7 +122,7 @@ def create_basic_settings(window):
     # Project and experiment section
     group_frame = QGroupBox("Project Settings")
     group_layout = QGridLayout(group_frame)
-    group_layout.setVerticalSpacing(6)  # Reduced spacing
+    group_layout.setVerticalSpacing(6)
     
     row = 0
     # Project directory
@@ -189,7 +194,7 @@ def create_basic_settings(window):
     group_layout.addWidget(QLabel("Model-Typ:"), row, 0)
     window.model_type_input = QComboBox()
     window.model_type_input.addItems(["Detection", "Segmentation"])
-    window.model_type_input.currentTextChanged.connect(lambda: update_model_options(window))
+    # Connect after all UI elements are created - will be done later
     group_layout.addWidget(window.model_type_input, row, 1)
 
     info_button = ParameterInfoButton(
@@ -223,27 +228,10 @@ def create_basic_settings(window):
     )
     group_layout.addWidget(info_button, row, 3)
 
-    # Initialize model options based on project manager if available
-    if hasattr(window, 'project_manager') and window.project_manager:
-        try:
-            recommended_type = window.project_manager.get_recommended_model_type()
-            if recommended_type == "segmentation":
-                window.model_type_input.setCurrentText("Segmentation")
-            else:
-                window.model_type_input.setCurrentText("Detection")
-        except:
-            pass  # Use default
-
-    # Update model options for the first time
-    update_model_options(window)
-
-    # Store reference to model type selection for UI updates
-    window.model_type_selection = window.model_type_input
-
-    # Basic training parameters
+    # Basic training parameters group
     training_group = QGroupBox("Basic Training Parameters")
     training_layout = QGridLayout(training_group)
-    training_layout.setVerticalSpacing(6)  # Reduced spacing
+    training_layout.setVerticalSpacing(6)
     
     row = 0
     # Epochs
@@ -268,7 +256,7 @@ def create_basic_settings(window):
     # Image size
     training_layout.addWidget(QLabel("Bildgröße:"), row, 0)
     window.imgsz_input = QSpinBox()
-    window.imgsz_input.setRange(320, 1280)  # Allow smaller sizes for segmentation
+    window.imgsz_input.setRange(320, 1280)
     window.imgsz_input.setValue(Config.training.image_size)
     window.imgsz_input.setSingleStep(32)
     training_layout.addWidget(window.imgsz_input, row, 1)
@@ -336,7 +324,7 @@ def create_basic_settings(window):
     container = QWidget()
     container_layout = QVBoxLayout(container)
     container_layout.setContentsMargins(0, 0, 0, 0)
-    container_layout.setSpacing(8)  # Reduced spacing between group boxes
+    container_layout.setSpacing(8)
     container_layout.addWidget(group_frame)
     container_layout.addWidget(training_group)
     
@@ -347,13 +335,12 @@ def create_advanced_settings(window):
     # Advanced parameters
     advanced_frame = QGroupBox("Advanced Settings")
     advanced_layout = QGridLayout(advanced_frame)
-    advanced_layout.setVerticalSpacing(6)  # Reduced spacing
+    advanced_layout.setVerticalSpacing(6)
     
     row = 0
     # Resume training
     advanced_layout.addWidget(QLabel("Training fortsetzen:"), row, 0)
     window.resume_input = QCheckBox()
-    # Style the checkbox to be more visible on light background
     window.resume_input.setStyleSheet("""
         QCheckBox {
             color: #333333;
@@ -368,7 +355,6 @@ def create_advanced_settings(window):
         QCheckBox::indicator:checked {
             background-color: #1976D2;
             border-color: #1976D2;
-            image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNCIgaGVpZ2h0PSIxNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0iZmVhdGhlciBmZWF0aGVyLWNoZWNrIj48cG9seWxpbmUgcG9pbnRzPSIyMCA2IDkgMTcgNCAxMiI+PC9wb2x5bGluZT48L3N2Zz4=);
         }
     """)
     window.resume_input.setChecked(Config.training.resume)
@@ -385,11 +371,10 @@ def create_advanced_settings(window):
     advanced_layout.addWidget(info_button, row, 3)
     
     row += 1
-    # Multi-scale training
-    window.multi_scale_row = row  # Store row for show/hide
-    advanced_layout.addWidget(QLabel("Multi-Scale Training:"), row, 0)
+    # Multi-scale training (DETECTION ONLY)
+    window.multi_scale_label = QLabel("Multi-Scale Training:")
+    advanced_layout.addWidget(window.multi_scale_label, row, 0)
     window.multi_scale_input = QCheckBox()
-    # Apply same checkbox style
     window.multi_scale_input.setStyleSheet(window.resume_input.styleSheet())
     window.multi_scale_input.setChecked(Config.training.multi_scale)
     advanced_layout.addWidget(window.multi_scale_input, row, 1)
@@ -406,34 +391,8 @@ def create_advanced_settings(window):
     )
     advanced_layout.addWidget(window.multi_scale_info, row, 3)
     
-    # Store widgets for show/hide functionality
-    window.multi_scale_label = advanced_layout.itemAtPosition(row, 0).widget()
-    
     row += 1
-    # Cosine LR scheduling
-    advanced_layout.addWidget(QLabel("Cosine Learning Rate:"), row, 0)
-    window.cos_lr_input = QCheckBox()
-    # Apply same checkbox style
-    window.cos_lr_input.setStyleSheet(window.resume_input.styleSheet())
-    window.cos_lr_input.setChecked(Config.training.cos_lr)
-    advanced_layout.addWidget(window.cos_lr_input, row, 1)
-    
-    info_button = ParameterInfoButton(
-        "Wenn aktiviert, wird die Lernrate nach einem Cosinus-Schema reduziert.\n\n"
-        "Cosine LR Scheduling:\n"
-        "- Beginnt mit der angegebenen Lernrate\n"
-        "- Reduziert die Lernrate langsamer zu Beginn und schneller gegen Ende\n"
-        "- Folgt einer Cosinus-Kurve, endet nahe Null\n\n"
-        "Vorteile:\n"
-        "- Oft bessere Konvergenz als lineare Reduktion\n"
-        "- Hilft, ein optimales Minimum zu finden\n\n"
-        "In den meisten Fällen empfohlen, besonders für die präzise Erkennung von Fehlern in Spritzgussteilen."
-    )
-    advanced_layout.addWidget(info_button, row, 3)
-    
-    row += 1
-    # Copy-paste augmentation (segmentation only)
-    window.copy_paste_row = row  # Store row for show/hide
+    # Copy-paste augmentation (SEGMENTATION ONLY)
     window.copy_paste_label = QLabel("Copy-Paste Augmentation:")
     advanced_layout.addWidget(window.copy_paste_label, row, 0)
     window.copy_paste_input = QCheckBox()
@@ -455,8 +414,7 @@ def create_advanced_settings(window):
     advanced_layout.addWidget(window.copy_paste_info, row, 3)
     
     row += 1
-    # Mask ratio (segmentation only)
-    window.mask_ratio_row = row  # Store row for show/hide
+    # Mask ratio (SEGMENTATION ONLY)
     window.mask_ratio_label = QLabel("Mask Ratio:")
     advanced_layout.addWidget(window.mask_ratio_label, row, 0)
     window.mask_ratio_input = QSpinBox()
@@ -477,6 +435,27 @@ def create_advanced_settings(window):
         "Diese Einstellung ist nur für Segmentierungsmodelle relevant."
     )
     advanced_layout.addWidget(window.mask_ratio_info, row, 3)
+    
+    row += 1
+    # Cosine LR scheduling
+    advanced_layout.addWidget(QLabel("Cosine Learning Rate:"), row, 0)
+    window.cos_lr_input = QCheckBox()
+    window.cos_lr_input.setStyleSheet(window.resume_input.styleSheet())
+    window.cos_lr_input.setChecked(Config.training.cos_lr)
+    advanced_layout.addWidget(window.cos_lr_input, row, 1)
+    
+    info_button = ParameterInfoButton(
+        "Wenn aktiviert, wird die Lernrate nach einem Cosinus-Schema reduziert.\n\n"
+        "Cosine LR Scheduling:\n"
+        "- Beginnt mit der angegebenen Lernrate\n"
+        "- Reduziert die Lernrate langsamer zu Beginn und schneller gegen Ende\n"
+        "- Folgt einer Cosinus-Kurve, endet nahe Null\n\n"
+        "Vorteile:\n"
+        "- Oft bessere Konvergenz als lineare Reduktion\n"
+        "- Hilft, ein optimales Minimum zu finden\n\n"
+        "In den meisten Fällen empfohlen, besonders für die präzise Erkennung von Fehlern in Spritzgussteilen."
+    )
+    advanced_layout.addWidget(info_button, row, 3)
     
     row += 1
     # Close mosaic

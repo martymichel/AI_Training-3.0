@@ -131,6 +131,9 @@ class TrainSettingsWindow(QMainWindow):
         # Create all settings UI components
         self.settings_controls = create_settings_ui(self)
 
+        # NOW connect the model type change signal after all UI elements exist
+        self.model_type_input.currentTextChanged.connect(lambda: update_model_options(self))
+        
         # Initialize model selection based on project annotations if available
         if self.project_manager:
             try:
@@ -239,6 +242,12 @@ class TrainSettingsWindow(QMainWindow):
 
     def update_ui_for_model_type(self, model_type):
         """Update UI visibility based on selected model type."""
+        # Safety check - only proceed if all UI elements exist
+        if not (hasattr(self, 'multi_scale_label') and 
+                hasattr(self, 'copy_paste_label') and 
+                hasattr(self, 'mask_ratio_label')):
+            return
+            
         is_segmentation = model_type == "segmentation"
         
         # Multi-scale training - hide for segmentation (not recommended)
@@ -268,6 +277,7 @@ class TrainSettingsWindow(QMainWindow):
                 "Detection Training ist speicher-effizienter als Segmentierung.\n"
                 "Höhere Werte sind meist möglich."
             )
+            
     def reset_form(self):
         """Reset form to default values."""
         if self.training_active:
@@ -376,6 +386,7 @@ class TrainSettingsWindow(QMainWindow):
                 return
 
         # Get training parameters
+        model_type = self.model_type_input.currentText().lower()
         epochs = self.epochs_input.value()
         imgsz = self.imgsz_input.value()
         batch = float(self.batch_input.value())
@@ -393,21 +404,19 @@ class TrainSettingsWindow(QMainWindow):
         # Get segmentation-specific parameters
         copy_paste = 0.0
         mask_ratio = 4
-        if hasattr(self, 'copy_paste_input') and self.copy_paste_input.isVisible():
+        if (model_type == "segmentation" and 
+            hasattr(self, 'copy_paste_input') and 
+            self.copy_paste_input.isVisible()):
             copy_paste = 0.3 if self.copy_paste_input.isChecked() else 0.0
-        if hasattr(self, 'mask_ratio_input') and self.mask_ratio_input.isVisible():
+        if (model_type == "segmentation" and 
+            hasattr(self, 'mask_ratio_input') and 
+            self.mask_ratio_input.isVisible()):
             mask_ratio = self.mask_ratio_input.value()
 
-        # Get model selection
-        model_path = getattr(self, 'model_input', None)
-        if model_path:
-            model_path = model_path.currentText()
-        else:
-            # Fallback to project manager or default
-            if self.project_manager:
-                model_path = self.project_manager.get_default_model_path()
-            else:
-                model_path = "yolo11n.pt"
+        # Get model path
+        model_path = self.model_input.currentText()
+        if not model_path:
+            model_path = "yolo11n-seg.pt" if model_type == "segmentation" else "yolo11n.pt"
 
         # Get project settings
         self.project = self.project_input.text() or Config.training.project_dir
@@ -466,6 +475,9 @@ class TrainSettingsWindow(QMainWindow):
             self.experiment,
             model_path,
         )
+        
+        # Save settings to project
+        self.save_training_settings_to_project()
 
     def stop_training(self):
         """Stop the current training process."""
@@ -506,7 +518,8 @@ class TrainSettingsWindow(QMainWindow):
 
         # Advanced parameters
         self.resume_input.setEnabled(not disabled)
-        self.multi_scale_input.setEnabled(not disabled)
+        if hasattr(self, 'multi_scale_input'):
+            self.multi_scale_input.setEnabled(not disabled)
         self.cos_lr_input.setEnabled(not disabled)
         self.close_mosaic_input.setReadOnly(disabled)
         self.momentum_input.setReadOnly(disabled)
@@ -514,6 +527,12 @@ class TrainSettingsWindow(QMainWindow):
         self.warmup_momentum_input.setReadOnly(disabled)
         self.box_input.setReadOnly(disabled)
         self.dropout_input.setReadOnly(disabled)
+        
+        # Segmentation-specific parameters
+        if hasattr(self, 'copy_paste_input'):
+            self.copy_paste_input.setEnabled(not disabled)
+        if hasattr(self, 'mask_ratio_input'):
+            self.mask_ratio_input.setReadOnly(disabled)
 
         # Reset button
         self.reset_button.setEnabled(not disabled)
@@ -691,55 +710,6 @@ class TrainSettingsWindow(QMainWindow):
                 event.ignore()
                 return
 
-        # Stop timers
-        self.results_check_timer.stop()
-
-        # Accept close event
-        event.accept()
-
-    def save_training_settings_to_project(self):
-        """Speichert Training-Settings ins Projekt"""
-        if hasattr(self, "project_manager") and self.project_manager:
-            settings = {
-                "epochs": self.epochs_input.value(),
-                "imgsz": self.imgsz_input.value(),
-                "batch": self.batch_input.value(),
-                "lr0": self.lr_input.value(),
-                "resume": self.resume_input.isChecked(),
-                "multi_scale": self.multi_scale_input.isChecked(),
-                "cos_lr": self.cos_lr_input.isChecked(),
-                "close_mosaic": self.close_mosaic_input.value(),
-                "momentum": self.momentum_input.value(),
-                "warmup_epochs": self.warmup_epochs_input.value(),
-                "warmup_momentum": self.warmup_momentum_input.value(),
-                "box": self.box_input.value(),
-                "dropout": self.dropout_input.value(),
-            }
-
-            self.project_manager.update_training_settings(settings)
-
-    def register_trained_model_to_project(
-        self, model_path: str, accuracy: float = None
-    ):
-        """Registriert trainiertes Modell im Projekt"""
-        if hasattr(self, "project_manager") and self.project_manager:
-            training_params = {
-                "epochs": self.epochs_input.value(),
-                "lr0": self.lr_input.value(),
-                "batch": self.batch_input.value(),
-                "imgsz": self.imgsz_input.value(),
-            }
-
-            timestamp = self.project_manager.register_new_model(
-                model_path, accuracy, training_params
-            )
-
-            # Workflow-Schritt markieren
-            self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
-            self.notify_main_menu()
-
-            return timestamp
-
     def open_verification_app(self):
         """Open verification window and close training window."""
         try:
@@ -762,6 +732,56 @@ class TrainSettingsWindow(QMainWindow):
             self.close()
         except Exception as e:
             logger.error(f"Failed to open verification app: {e}")
+
+    def save_training_settings_to_project(self):
+        """Speichert Training-Settings ins Projekt"""
+        if hasattr(self, "project_manager") and self.project_manager:
+            settings = {
+                "epochs": self.epochs_input.value(),
+                "imgsz": self.imgsz_input.value(),
+                "batch": self.batch_input.value(),
+                "lr0": self.lr_input.value(),
+                "resume": self.resume_input.isChecked(),
+                "multi_scale": getattr(self.multi_scale_input, 'isChecked', lambda: False)(),
+                "cos_lr": self.cos_lr_input.isChecked(),
+                "close_mosaic": self.close_mosaic_input.value(),
+                "momentum": self.momentum_input.value(),
+                "warmup_epochs": self.warmup_epochs_input.value(),
+                "warmup_momentum": self.warmup_momentum_input.value(),
+                "box": self.box_input.value(),
+                "dropout": self.dropout_input.value(),
+                "model_type": self.model_type_input.currentText(),
+                "model_path": self.model_input.currentText(),
+            }
+            
+            # Add segmentation-specific settings if available
+            if hasattr(self, 'copy_paste_input'):
+                settings["copy_paste"] = self.copy_paste_input.isChecked()
+            if hasattr(self, 'mask_ratio_input'):
+                settings["mask_ratio"] = self.mask_ratio_input.value()
+
+            self.project_manager.update_training_settings(settings)
+
+    def register_trained_model_to_project(self, model_path: str, accuracy: float = None):
+        """Registriert trainiertes Modell im Projekt"""
+        if hasattr(self, "project_manager") and self.project_manager:
+            training_params = {
+                "epochs": self.epochs_input.value(),
+                "lr0": self.lr_input.value(),
+                "batch": self.batch_input.value(),
+                "imgsz": self.imgsz_input.value(),
+                "model_type": self.model_type_input.currentText(),
+            }
+
+            timestamp = self.project_manager.register_new_model(
+                model_path, accuracy, training_params
+            )
+
+            # Workflow-Schritt markieren
+            self.project_manager.mark_step_completed(WorkflowStep.TRAINING)
+            self.notify_main_menu()
+
+            return timestamp
 
     def notify_main_menu(self):
         """Informiert das Hauptmenü, den Workflow-Status zu aktualisieren."""
