@@ -22,6 +22,111 @@ import io
 import warnings
 from project_manager import WorkflowStep
 
+def detect_annotation_format_in_file(label_path):
+    """Detect annotation format in a single label file."""
+    try:
+        with open(label_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        bbox_count = 0
+        polygon_count = 0
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            parts = line.split()
+            if len(parts) == 5:
+                bbox_count += 1
+            elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                polygon_count += 1
+        
+        if bbox_count > 0 and polygon_count > 0:
+            return 'mixed'
+        elif polygon_count > 0:
+            return 'polygon'
+        elif bbox_count > 0:
+            return 'bbox'
+        else:
+            return 'empty'
+    except Exception:
+        return 'error'
+
+def parse_polygon_annotation(parts):
+    """Parse polygon annotation from label parts."""
+    try:
+        class_id = int(float(parts[0]))
+        coords = [float(x) for x in parts[1:]]
+        
+        # Ensure even number of coordinates (x,y pairs)
+        if len(coords) % 2 != 0:
+            return None
+        
+        # Convert to (x,y) pairs
+        points = []
+        for i in range(0, len(coords), 2):
+            x, y = coords[i], coords[i+1]
+            points.append((x, y))
+        
+        return class_id, points
+    except Exception:
+        return None
+
+def validate_polygon_annotation(parts):
+    """Validate polygon annotation quality."""
+    issues = []
+    
+    try:
+        class_id = int(float(parts[0]))
+        coords = [float(x) for x in parts[1:]]
+        
+        # Check coordinate count
+        if len(coords) < 6:
+            issues.append("❌ Polygon: Mindestens 3 Punkte erforderlich")
+            return issues
+        
+        if len(coords) % 2 != 0:
+            issues.append("❌ Polygon: Ungerade Anzahl an Koordinaten")
+            return issues
+        
+        # Check coordinate ranges
+        for i, coord in enumerate(coords):
+            if not (0 <= coord <= 1):
+                coord_type = "x" if i % 2 == 0 else "y"
+                issues.append(f"🚫 Polygon: {coord_type}-Koordinate außerhalb 0-1: {coord:.3f}")
+        
+        # Check polygon area (approximate)
+        points = [(coords[i], coords[i+1]) for i in range(0, len(coords), 2)]
+        area = calculate_polygon_area(points)
+        if area < 0.0001:  # Very small polygon
+            issues.append("📏 Polygon: Sehr kleine Fläche")
+        
+        # Check for degenerate polygon (all points identical)
+        if len(set(points)) < 3:
+            issues.append("⚡ Polygon: Entartetes Polygon (< 3 eindeutige Punkte)")
+        
+    except ValueError:
+        issues.append("💥 Polygon: Ungültige Koordinaten-Werte")
+    except Exception as e:
+        issues.append(f"🔥 Polygon: Unbekannter Fehler")
+    
+    return issues
+
+def calculate_polygon_area(points):
+    """Calculate polygon area using shoelace formula."""
+    try:
+        if len(points) < 3:
+            return 0
+        
+        area = 0
+        for i in range(len(points)):
+            j = (i + 1) % len(points)
+            area += points[i][0] * points[j][1]
+            area -= points[j][0] * points[i][1]
+        return abs(area) / 2
+    except Exception:
+        return 0
 
 # PIL Sicherheitseinstellungen
 Image.MAX_IMAGE_PIXELS = None
@@ -107,6 +212,11 @@ class QualityAnalyzer:
                 # Kein Issue - wird als Background markiert
                 return []
             
+            # Detect annotation format for this file
+            annotation_format = detect_annotation_format_in_file(label_path)
+            if annotation_format == 'mixed':
+                issues.append("⚠️ Mixed Format: Bounding Boxes und Polygone in einer Datei")
+            
             for line_num, line in enumerate(lines, 1):
                 line = line.strip()
                 if not line:
@@ -119,21 +229,32 @@ class QualityAnalyzer:
                         issues.append(f"❌ Zeile {line_num}: Unvollständig")
                         continue
                     
-                    class_id, x_center, y_center, width, height = map(float, parts[:5])
+                    if len(parts) == 5:
+                        # Bounding Box Format
+                        class_id, x_center, y_center, width, height = map(float, parts[:5])
+                        
+                        # Schnelle Basis-Checks für Bounding Boxes
+                        if not (0 <= x_center <= 1 and 0 <= y_center <= 1 and 
+                               0 <= width <= 1 and 0 <= height <= 1):
+                            issues.append(f"🚫 Box Zeile {line_num}: Koordinaten ungültig")
+                        
+                        # Größe-Checks
+                        if width * height < self.quality_thresholds['min_box_size']:
+                            issues.append(f"📏 Box Zeile {line_num}: Box zu klein")
+                        
+                        if min(width, height) > 0:
+                            aspect_ratio = max(width/height, height/width)
+                            if aspect_ratio > self.quality_thresholds['aspect_ratio_extreme']:
+                                issues.append(f"⚡ Box Zeile {line_num}: Extremes Verhältnis")
                     
-                    # Schnelle Basis-Checks
-                    if not (0 <= x_center <= 1 and 0 <= y_center <= 1 and 
-                           0 <= width <= 1 and 0 <= height <= 1):
-                        issues.append(f"🚫 Zeile {line_num}: Koordinaten ungültig")
+                    elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                        # Polygon Format - validate using new function
+                        polygon_issues = validate_polygon_annotation(parts)
+                        for issue in polygon_issues:
+                            issues.append(f"Zeile {line_num}: {issue}")
                     
-                    # Größe-Checks
-                    if width * height < self.quality_thresholds['min_box_size']:
-                        issues.append(f"📏 Zeile {line_num}: Box zu klein")
-                    
-                    if min(width, height) > 0:
-                        aspect_ratio = max(width/height, height/width)
-                        if aspect_ratio > self.quality_thresholds['aspect_ratio_extreme']:
-                            issues.append(f"⚡ Zeile {line_num}: Extremes Verhältnis")
+                    else:
+                        issues.append(f"❓ Zeile {line_num}: Unbekanntes Format ({len(parts)} Werte)")
                 
                 except ValueError:
                     issues.append(f"💥 Zeile {line_num}: Ungültige Werte")
@@ -228,7 +349,8 @@ class FastYOLOChecker(QMainWindow):
         
         # Qualitätsprüfer
         self.quality_analyzer = QualityAnalyzer({
-            'min_box_size': 0.01,
+            'min_box_size': 0.001,      # Kleinere Mindestgröße für Polygone
+            'min_polygon_area': 0.0001,  # Mindest-Polygonfläche
             'edge_threshold': 0.02,
             'min_width_height': 0.005,
             'aspect_ratio_extreme': 20
@@ -304,7 +426,7 @@ class FastYOLOChecker(QMainWindow):
         header_layout.addWidget(filter_label)
         
         self.filter_combo = QComboBox()
-        self.filter_combo.addItems(["Alle", "Kritisch", "OK", "Background"])
+        self.filter_combo.addItems(["Alle", "Kritisch", "OK", "Background", "Polygone", "Bounding Boxes", "Mixed"])
         self.filter_combo.currentTextChanged.connect(self.apply_filter)
         self.filter_combo.setStyleSheet("""
             QComboBox {
@@ -788,6 +910,36 @@ class FastYOLOChecker(QMainWindow):
                    if img not in self.quality_issues and img not in self.background_images]
         elif filter_text == "background":
             return [img for img in self.image_files if img in self.background_images]
+        elif filter_text == "polygone":
+            # Filter for files containing polygons
+            polygon_files = []
+            for img in self.image_files:
+                label_path = os.path.splitext(img)[0] + '.txt'
+                if os.path.exists(label_path):
+                    format_type = detect_annotation_format_in_file(label_path)
+                    if format_type in ['polygon', 'mixed']:
+                        polygon_files.append(img)
+            return polygon_files
+        elif filter_text == "bounding boxes":
+            # Filter for files containing only bounding boxes
+            bbox_files = []
+            for img in self.image_files:
+                label_path = os.path.splitext(img)[0] + '.txt'
+                if os.path.exists(label_path):
+                    format_type = detect_annotation_format_in_file(label_path)
+                    if format_type == 'bbox':
+                        bbox_files.append(img)
+            return bbox_files
+        elif filter_text == "mixed":
+            # Filter for files with mixed annotations
+            mixed_files = []
+            for img in self.image_files:
+                label_path = os.path.splitext(img)[0] + '.txt'
+                if os.path.exists(label_path):
+                    format_type = detect_annotation_format_in_file(label_path)
+                    if format_type == 'mixed':
+                        mixed_files.append(img)
+            return mixed_files
         else:
             return self.image_files
     
@@ -926,6 +1078,10 @@ class FastYOLOChecker(QMainWindow):
                 
                 img_width, img_height = img.size
                 
+                # Track annotation types for display
+                bbox_count = 0
+                polygon_count = 0
+                
                 for line in lines:
                     line = line.strip()
                     if not line:
@@ -933,7 +1089,9 @@ class FastYOLOChecker(QMainWindow):
                     
                     try:
                         parts = line.split()
-                        if len(parts) >= 5:
+                        
+                        if len(parts) == 5:
+                            # Bounding Box Format
                             class_id, x_center, y_center, width, height = map(float, parts[:5])
                             
                             x_min = int((x_center - width/2) * img_width)
@@ -952,9 +1110,61 @@ class FastYOLOChecker(QMainWindow):
                             # Klassen-ID
                             draw.text((x_min, max(0, y_min-25)), f"Class: {int(class_id)}", 
                                     fill=color)
+                            bbox_count += 1
+                        
+                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                            # Polygon Format
+                            result = parse_polygon_annotation(parts)
+                            if result:
+                                class_id, points = result
+                                
+                                # Convert normalized coordinates to pixel coordinates
+                                pixel_points = []
+                                for x, y in points:
+                                    px = int(x * img_width)
+                                    py = int(y * img_height)
+                                    pixel_points.append((px, py))
+                                
+                                color = '#dc3545' if img_path in self.quality_issues else '#28a745'
+                                
+                                # Draw polygon outline with 6px thickness
+                                for thickness in range(6):
+                                    # Create offset points for thickness
+                                    offset_points = []
+                                    for px, py in pixel_points:
+                                        offset_points.append((px - thickness, py - thickness))
+                                    
+                                    try:
+                                        draw.polygon(offset_points, outline=color, fill=None)
+                                    except Exception:
+                                        # Fallback: draw lines between points
+                                        for i in range(len(offset_points)):
+                                            start = offset_points[i]
+                                            end = offset_points[(i + 1) % len(offset_points)]
+                                            draw.line([start, end], fill=color, width=1)
+                                
+                                # Klassen-ID am ersten Punkt
+                                if pixel_points:
+                                    first_point = pixel_points[0]
+                                    draw.text((first_point[0], max(0, first_point[1]-25)), 
+                                            f"Poly: {int(class_id)}", fill=color)
+                                
+                                polygon_count += 1
                     
                     except (ValueError, IndexError):
                         continue
+                
+                # Add format info to image if mixed format detected
+                if bbox_count > 0 and polygon_count > 0:
+                    draw.text((10, 10), f"⚠️ MIXED: {bbox_count} Boxes, {polygon_count} Polygone", 
+                             fill='red', font=None)
+                elif polygon_count > 0:
+                    draw.text((10, 10), f"✅ POLYGON: {polygon_count} Segmente", 
+                             fill='green', font=None)
+                elif bbox_count > 0:
+                    draw.text((10, 10), f"✅ BBOX: {bbox_count} Boxen", 
+                             fill='green', font=None)
+                             
             except Exception:
                 pass
         
@@ -1074,7 +1284,33 @@ class FastYOLOChecker(QMainWindow):
         background = len([img for img in self.image_files if img in self.background_images])
         ok = total - critical - background
         
+        # Add format detection summary
+        bbox_files = 0
+        polygon_files = 0
+        mixed_files = 0
+        
+        for img_file in self.image_files[:50]:  # Sample first 50 for performance
+            label_path = os.path.splitext(img_file)[0] + '.txt'
+            if os.path.exists(label_path):
+                format_type = detect_annotation_format_in_file(label_path)
+                if format_type == 'bbox':
+                    bbox_files += 1
+                elif format_type == 'polygon':
+                    polygon_files += 1
+                elif format_type == 'mixed':
+                    mixed_files += 1
+        
         stats_text = f"📊 {total} | ⚠️ {critical} | ✅ {ok} | 🌄 {background}"
+        
+        # Add format info
+        if polygon_files > 0 or bbox_files > 0 or mixed_files > 0:
+            if mixed_files > 0:
+                stats_text += f" | ⚠️ Mixed: {mixed_files}"
+            if polygon_files > 0:
+                stats_text += f" | 🔺 Poly: {polygon_files}"
+            if bbox_files > 0:
+                stats_text += f" | ⬜ Box: {bbox_files}"
+        
         if self.deleted_files:
             stats_text += f" | 🗑️ {len(self.deleted_files)}"
         
