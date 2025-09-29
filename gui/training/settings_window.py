@@ -33,8 +33,108 @@ class TrainSettingsWindow(QMainWindow):
         super().__init__()
         self.project_manager = project_manager
         self.setWindowTitle("YOLO Training Settings")
-        self.setGeometry(100, 100, 1400, 900)
+        self.setGeometry(100, 100, 1400, 800)
         self.setWindowState(Qt.WindowState.WindowMaximized)
+        
+        # Fixed independent styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #ffffff;
+                color: #2c3e50;
+            }
+            QWidget {
+                background-color: #ffffff;
+                color: #2c3e50;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 13px;
+            }
+            QLabel {
+                color: #2c3e50;
+                background: transparent;
+                padding: 2px;
+                font-weight: 500;
+            }
+            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+                background-color: #ffffff;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                padding: 6px;
+                color: #2c3e50;
+                font-size: 13px;
+            }
+            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border-color: #3498db;
+                background-color: #f8f9fa;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: 600;
+                font-size: 13px;
+                min-height: 24px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #95a5a6;
+                color: #ecf0f1;
+            }
+            QCheckBox {
+                color: #2c3e50;
+                font-weight: 500;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #bdc3c7;
+                border-radius: 2px;
+                background-color: #ffffff;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border-color: #3498db;
+            }
+            QProgressBar {
+                background-color: #ecf0f1;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                text-align: center;
+                color: #2c3e50;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 3px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #bdc3c7;
+                background-color: #ffffff;
+            }
+            QTabBar::tab {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            QTabBar::tab:selected {
+                background-color: #3498db;
+                color: #ffffff;
+            }
+            QTextEdit {
+                background-color: #ffffff;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                color: #2c3e50;
+                font-family: 'Consolas', monospace;
+                font-size: 12px;
+            }
+        """)
         
         # Training state
         self.training_active = False
@@ -62,151 +162,122 @@ class TrainSettingsWindow(QMainWindow):
             self.load_project_settings()
 
     def init_ui(self):
-        """Initialize the user interface."""
+        """Initialize the compact user interface."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
         # Main splitter
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(main_splitter)
         
-        # Settings panel (left side)
-        settings_panel = self.create_settings_panel()
+        # Settings panel (left side) - more compact
+        settings_panel = self.create_compact_settings_panel()
         main_splitter.addWidget(settings_panel)
         
         # Dashboard panel (right side)
         self.tabs, self.figure, self.canvas, self.log_text = create_dashboard_tabs(self)
         main_splitter.addWidget(self.tabs)
         
-        # Set initial splitter sizes
-        main_splitter.setSizes([400, 1000])
+        # Set initial splitter sizes - more space for dashboard
+        main_splitter.setSizes([350, 1050])
 
-    def create_settings_panel(self):
-        """Create the settings configuration panel."""
+    def create_compact_settings_panel(self):
+        """Create compact settings panel without excessive frames."""
         panel = QWidget()
-        panel.setFixedWidth(400)
+        panel.setFixedWidth(350)
         panel.setStyleSheet("""
             QWidget {
                 background-color: #f8f9fa;
-                border-right: 1px solid #dee2e6;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #dee2e6;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
-                background-color: white;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-                color: #495057;
-            }
-            QPushButton {
-                background-color: #007bff;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 600;
-                margin: 2px;
-            }
-            QPushButton:hover {
-                background-color: #0056b3;
-            }
-            QPushButton:disabled {
-                background-color: #6c757d;
-                color: #dee2e6;
-            }
-            QLabel {
-                color: #495057;
-                padding: 2px;
-            }
-            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-                background-color: white;
-                border: 2px solid #ced4da;
-                border-radius: 4px;
-                padding: 6px;
-                color: #495057;
-            }
-            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-                border-color: #007bff;
+                border-right: 1px solid #bdc3c7;
             }
         """)
         
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(15)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         
-        # Basic Settings Group
-        basic_group = QGroupBox("Basic Settings")
-        basic_layout = QFormLayout()
+        # Compact header
+        header_label = QLabel("Training Configuration")
+        header_font = QFont()
+        header_font.setPointSize(14)
+        header_font.setWeight(QFont.Weight.Bold)
+        header_label.setFont(header_font)
+        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_label.setStyleSheet("color: #2c3e50; padding: 8px; background-color: #ffffff; border-radius: 4px;")
+        layout.addWidget(header_label)
+        
+        # Compact form layout for all settings
+        form_widget = QWidget()
+        form_widget.setStyleSheet("background-color: #ffffff; border-radius: 4px; padding: 4px;")
+        form_layout = QFormLayout(form_widget)
+        form_layout.setContentsMargins(12, 12, 12, 12)
+        form_layout.setVerticalSpacing(8)
+        form_layout.setHorizontalSpacing(8)
         
         # Project directory
         project_layout = QHBoxLayout()
+        project_layout.setSpacing(4)
         self.project_input = QLineEdit()
         self.project_input.setPlaceholderText("Training will be saved here...")
-        project_browse = QPushButton("Browse")
+        project_browse = QPushButton("...")
+        project_browse.setFixedWidth(30)
         project_browse.clicked.connect(self.browse_project)
         project_layout.addWidget(self.project_input)
         project_layout.addWidget(project_browse)
-        basic_layout.addRow("Project Directory:", project_layout)
+        form_layout.addRow("Project Dir:", project_layout)
         
         # Experiment name
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g., experiment_001")
-        basic_layout.addRow("Experiment Name:", self.name_input)
+        form_layout.addRow("Experiment:", self.name_input)
         
         # Data YAML file
         data_layout = QHBoxLayout()
+        data_layout.setSpacing(4)
         self.data_input = QLineEdit()
-        self.data_input.setPlaceholderText("Path to data.yaml file...")
-        data_browse = QPushButton("Browse")
+        self.data_input.setPlaceholderText("Path to data.yaml...")
+        data_browse = QPushButton("...")
+        data_browse.setFixedWidth(30)
         data_browse.clicked.connect(self.browse_data)
         data_layout.addWidget(self.data_input)
         data_layout.addWidget(data_browse)
-        basic_layout.addRow("Dataset YAML:", data_layout)
-        
-        basic_group.setLayout(basic_layout)
-        layout.addWidget(basic_group)
-        
-        # Model Settings Group
-        model_group = QGroupBox("Model Configuration")
-        model_layout = QFormLayout()
+        form_layout.addRow("Dataset YAML:", data_layout)
         
         # Model Type
         self.model_type_input = QComboBox()
         self.model_type_input.addItems(["Detection", "Segmentation", "Nachtraining"])
         self.model_type_input.currentTextChanged.connect(self.update_model_options)
-        model_layout.addRow("Model Type:", self.model_type_input)
+        form_layout.addRow("Model Type:", self.model_type_input)
         
         # Model Selection Container
         self.model_container = QWidget()
         self.model_container_layout = QVBoxLayout(self.model_container)
         self.model_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.model_container_layout.setSpacing(0)
         
         # Model dropdown (default)
         self.model_dropdown_widget = QWidget()
         dropdown_layout = QHBoxLayout(self.model_dropdown_widget)
         dropdown_layout.setContentsMargins(0, 0, 0, 0)
+        dropdown_layout.setSpacing(0)
         
         self.model_input = QComboBox()
-        self.model_input.setMinimumWidth(200)
+        self.model_input.setMinimumWidth(250)
         dropdown_layout.addWidget(self.model_input)
-        dropdown_layout.addStretch()
         
         # Model file browser (for continual training)
         self.model_browse_widget = QWidget()
         browse_layout = QHBoxLayout(self.model_browse_widget)
         browse_layout.setContentsMargins(0, 0, 0, 0)
+        browse_layout.setSpacing(4)
         
         self.model_path_display = QLineEdit()
         self.model_path_display.setPlaceholderText("No model selected...")
         self.model_path_display.setReadOnly(True)
-        self.model_browse_button = QPushButton("Browse Model...")
+        self.model_browse_button = QPushButton("Browse")
+        self.model_browse_button.setFixedWidth(60)
         self.model_browse_button.clicked.connect(self.browse_model_file)
         
         browse_layout.addWidget(self.model_path_display)
@@ -219,23 +290,26 @@ class TrainSettingsWindow(QMainWindow):
         # Initially hide browse widget
         self.model_browse_widget.hide()
         
-        model_layout.addRow("Model:", self.model_container)
-        model_group.setLayout(model_layout)
-        layout.addWidget(model_group)
+        form_layout.addRow("Model:", self.model_container)
         
-        # Training Parameters Group
-        params_group = QGroupBox("Training Parameters")
-        params_layout = QFormLayout()
+        # Training parameters in compact grid
+        params_widget = QWidget()
+        params_layout = QFormLayout(params_widget)
+        params_layout.setContentsMargins(0, 8, 0, 0)
+        params_layout.setVerticalSpacing(6)
+        params_layout.setHorizontalSpacing(6)
         
         # Epochs
         epochs_layout = QHBoxLayout()
+        epochs_layout.setSpacing(4)
         self.epochs_input = QSpinBox()
         self.epochs_input.setRange(1, 1000)
         self.epochs_input.setValue(100)
+        self.epochs_input.setFixedWidth(80)
         epochs_info = ParameterInfoButton(
-            "Number of complete passes through the training dataset.\n"
+            "Number of training iterations through the complete dataset.\n"
             "More epochs = longer training but potentially better results.\n"
-            "Typical values: 100-300 for new models, 10-50 for fine-tuning."
+            "Typical: 100-300 for new models, 10-50 for fine-tuning."
         )
         epochs_layout.addWidget(self.epochs_input)
         epochs_layout.addWidget(epochs_info)
@@ -244,143 +318,159 @@ class TrainSettingsWindow(QMainWindow):
         
         # Image Size
         imgsz_layout = QHBoxLayout()
+        imgsz_layout.setSpacing(4)
         self.imgsz_input = QSpinBox()
         self.imgsz_input.setRange(320, 1280)
         self.imgsz_input.setValue(640)
         self.imgsz_input.setSingleStep(32)
+        self.imgsz_input.setFixedWidth(80)
         imgsz_info = ParameterInfoButton(
-            "Input image size for training (must be multiple of 32).\n"
-            "Higher values = better detail detection but slower training.\n"
-            "Common values: 640 (standard), 832 (detailed), 1024 (high detail)."
+            "Input image size (must be multiple of 32).\n"
+            "Higher = better detail but slower training.\n"
+            "Common: 640 (standard), 832 (detailed), 1024 (high detail)."
         )
         imgsz_layout.addWidget(self.imgsz_input)
         imgsz_layout.addWidget(imgsz_info)
         imgsz_layout.addStretch()
         params_layout.addRow("Image Size:", imgsz_layout)
         
-        # Batch Size
-        batch_layout = QHBoxLayout()
+        # Batch Size and Learning Rate in one row
+        batch_lr_layout = QHBoxLayout()
+        batch_lr_layout.setSpacing(8)
+        
+        # Batch
+        batch_sub_layout = QVBoxLayout()
+        batch_sub_layout.setSpacing(2)
+        batch_label = QLabel("Batch:")
+        batch_label.setStyleSheet("font-size: 12px;")
         self.batch_input = QDoubleSpinBox()
         self.batch_input.setRange(0.1, 128.0)
         self.batch_input.setValue(0.8)
         self.batch_input.setSingleStep(0.1)
-        batch_info = ParameterInfoButton(
-            "Batch size controls memory usage and training stability.\n"
-            "Values < 1.0 = automatic sizing based on GPU memory.\n"
-            "Values ≥ 1.0 = fixed batch size.\n"
-            "Start with 0.8 for automatic, or 16 for fixed batch."
-        )
-        batch_layout.addWidget(self.batch_input)
-        batch_layout.addWidget(batch_info)
-        batch_layout.addStretch()
-        params_layout.addRow("Batch Size:", batch_layout)
+        self.batch_input.setFixedWidth(70)
+        batch_sub_layout.addWidget(batch_label)
+        batch_sub_layout.addWidget(self.batch_input)
         
         # Learning Rate
-        lr_layout = QHBoxLayout()
+        lr_sub_layout = QVBoxLayout()
+        lr_sub_layout.setSpacing(2)
+        lr_label = QLabel("Learn Rate:")
+        lr_label.setStyleSheet("font-size: 12px;")
         self.lr0_input = QDoubleSpinBox()
         self.lr0_input.setRange(0.0001, 0.1)
         self.lr0_input.setValue(0.005)
         self.lr0_input.setDecimals(4)
         self.lr0_input.setSingleStep(0.001)
-        lr_info = ParameterInfoButton(
-            "Initial learning rate for optimization.\n"
-            "Higher values = faster learning but less stable.\n"
-            "Typical values: 0.001-0.01 for new training, 0.0001-0.001 for fine-tuning."
-        )
-        lr_layout.addWidget(self.lr0_input)
-        lr_layout.addWidget(lr_info)
-        lr_layout.addStretch()
-        params_layout.addRow("Learning Rate:", lr_layout)
+        self.lr0_input.setFixedWidth(80)
+        lr_sub_layout.addWidget(lr_label)
+        lr_sub_layout.addWidget(self.lr0_input)
         
-        params_group.setLayout(params_layout)
-        layout.addWidget(params_group)
+        batch_lr_layout.addLayout(batch_sub_layout)
+        batch_lr_layout.addLayout(lr_sub_layout)
+        batch_lr_layout.addStretch()
         
-        # Advanced Settings Group
-        advanced_group = QGroupBox("Advanced Settings")
-        advanced_layout = QFormLayout()
+        form_layout.addRow(batch_lr_layout)
         
-        # Resume training
+        # Checkboxes in compact layout
+        checkboxes_layout = QVBoxLayout()
+        checkboxes_layout.setSpacing(4)
+        
         self.resume_input = QCheckBox("Resume from last checkpoint")
-        advanced_layout.addRow("Resume:", self.resume_input)
-        
-        # Multi-scale training
         self.multi_scale_input = QCheckBox("Multi-scale training")
-        advanced_layout.addRow("Multi-scale:", self.multi_scale_input)
-        
-        # Cosine LR
         self.cos_lr_input = QCheckBox("Cosine learning rate scheduler")
         self.cos_lr_input.setChecked(True)
-        advanced_layout.addRow("Cosine LR:", self.cos_lr_input)
         
-        advanced_group.setLayout(advanced_layout)
-        layout.addWidget(advanced_group)
+        checkboxes_layout.addWidget(self.resume_input)
+        checkboxes_layout.addWidget(self.multi_scale_input)
+        checkboxes_layout.addWidget(self.cos_lr_input)
         
-        # Control Buttons
-        control_group = QGroupBox("Training Control")
-        control_layout = QVBoxLayout()
+        form_layout.addRow("Options:", checkboxes_layout)
         
-        # Start button
+        layout.addWidget(form_widget)
+        
+        # Compact control section
+        control_widget = QWidget()
+        control_widget.setStyleSheet("background-color: #ffffff; border-radius: 4px;")
+        control_layout = QVBoxLayout(control_widget)
+        control_layout.setContentsMargins(8, 8, 8, 8)
+        control_layout.setSpacing(6)
+        
+        # Control buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(8)
+        
         self.start_button = QPushButton("Start Training")
-        self.start_button.setMinimumHeight(50)
+        self.start_button.setMinimumHeight(35)
         self.start_button.setStyleSheet("""
             QPushButton {
-                background-color: #28a745;
-                font-size: 16px;
+                background-color: #27ae60;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-        """)
-        self.start_button.clicked.connect(self.start_training)
-        control_layout.addWidget(self.start_button)
-        
-        # Stop button
-        self.stop_button = QPushButton("Stop Training")
-        self.stop_button.setEnabled(False)
-        self.stop_button.setStyleSheet("""
-            QPushButton {
-                background-color: #dc3545;
                 font-size: 14px;
             }
             QPushButton:hover {
-                background-color: #c82333;
+                background-color: #229954;
+            }
+        """)
+        self.start_button.clicked.connect(self.start_training)
+        
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setEnabled(False)
+        self.stop_button.setFixedWidth(60)
+        self.stop_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
             }
         """)
         self.stop_button.clicked.connect(self.stop_training)
-        control_layout.addWidget(self.stop_button)
+        
+        buttons_layout.addWidget(self.start_button)
+        buttons_layout.addWidget(self.stop_button)
+        control_layout.addLayout(buttons_layout)
         
         # Progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimumHeight(25)
+        self.progress_bar.setMinimumHeight(20)
         control_layout.addWidget(self.progress_bar)
         
         # Status label
         self.status_label = QLabel("Ready to start training")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("color: #495057; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #2c3e50; font-weight: bold; font-size: 12px;")
         control_layout.addWidget(self.status_label)
         
-        control_group.setLayout(control_layout)
-        layout.addWidget(control_group)
+        layout.addWidget(control_widget)
         
-        # GPU Status
+        # GPU Status - very compact
         self.gpu_status_label = QLabel("Checking GPU...")
         self.gpu_status_label.setWordWrap(True)
-        self.gpu_status_label.setStyleSheet("color: #6c757d; font-size: 12px; padding: 10px;")
+        self.gpu_status_label.setStyleSheet("""
+            color: #7f8c8d; 
+            font-size: 11px; 
+            padding: 6px; 
+            background-color: #ffffff; 
+            border-radius: 4px;
+        """)
+        self.gpu_status_label.setMaximumHeight(60)
         layout.addWidget(self.gpu_status_label)
         
-        # Navigation buttons
-        nav_group = QGroupBox("Navigation")
-        nav_layout = QVBoxLayout()
-        
+        # Navigation button - compact
         self.verification_button = QPushButton("Continue to Verification")
-        self.verification_button.setMinimumHeight(40)
+        self.verification_button.setMinimumHeight(30)
+        self.verification_button.setStyleSheet("""
+            QPushButton {
+                background-color: #8e44ad;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7d3c98;
+            }
+        """)
         self.verification_button.clicked.connect(self.open_verification_app)
-        nav_layout.addWidget(self.verification_button)
-        
-        nav_group.setLayout(nav_layout)
-        layout.addWidget(nav_group)
+        layout.addWidget(self.verification_button)
         
         layout.addStretch()
         return panel
@@ -388,8 +478,6 @@ class TrainSettingsWindow(QMainWindow):
     def update_model_options(self):
         """Update available model options based on selected type."""
         model_type = self.model_type_input.currentText().lower()
-        
-        print(f"DEBUG: Updating model options for type: {model_type}")
         
         if model_type == "nachtraining":
             # Hide dropdown, show browse interface
@@ -407,7 +495,7 @@ class TrainSettingsWindow(QMainWindow):
                         self.model_path_display.setText("No model found - please select one")
                         self.selected_model_path = None
                 except Exception as e:
-                    print(f"Error loading latest model: {e}")
+                    logger.warning(f"Error loading latest model: {e}")
                     self.model_path_display.setText("Please select a model file")
                     self.selected_model_path = None
             else:
@@ -448,7 +536,6 @@ class TrainSettingsWindow(QMainWindow):
                     "yolo8x.pt"
                 ]
             
-            print(f"DEBUG: Adding {len(models)} models to dropdown")
             self.model_input.addItems(models)
             
             # Set default based on project manager if available
@@ -458,11 +545,8 @@ class TrainSettingsWindow(QMainWindow):
                     index = self.model_input.findText(default_model)
                     if index >= 0:
                         self.model_input.setCurrentIndex(index)
-                        print(f"DEBUG: Set default model to {default_model}")
-                except:
+                except Exception:
                     pass
-            
-            print(f"DEBUG: Model dropdown now has {self.model_input.count()} items")
 
     def browse_project(self):
         """Browse for project directory."""
@@ -492,14 +576,35 @@ class TrainSettingsWindow(QMainWindow):
         try:
             gpu_available, gpu_message = check_gpu()
             if gpu_available:
-                self.gpu_status_label.setText(f"✅ GPU Ready: {gpu_message}")
-                self.gpu_status_label.setStyleSheet("color: #28a745; font-size: 12px; padding: 10px;")
+                # Compact GPU status for small screens
+                lines = gpu_message.split('\n')
+                compact_msg = lines[0] if lines else "GPU Ready"
+                self.gpu_status_label.setText(f"✅ {compact_msg}")
+                self.gpu_status_label.setStyleSheet("""
+                    color: #27ae60; 
+                    font-size: 11px; 
+                    padding: 6px; 
+                    background-color: #ffffff; 
+                    border-radius: 4px;
+                """)
             else:
-                self.gpu_status_label.setText(f"⚠️ GPU Not Available: {gpu_message}")
-                self.gpu_status_label.setStyleSheet("color: #ffc107; font-size: 12px; padding: 10px;")
+                self.gpu_status_label.setText(f"⚠️ CPU Mode")
+                self.gpu_status_label.setStyleSheet("""
+                    color: #f39c12; 
+                    font-size: 11px; 
+                    padding: 6px; 
+                    background-color: #ffffff; 
+                    border-radius: 4px;
+                """)
         except Exception as e:
-            self.gpu_status_label.setText(f"❌ GPU Check Failed: {str(e)}")
-            self.gpu_status_label.setStyleSheet("color: #dc3545; font-size: 12px; padding: 10px;")
+            self.gpu_status_label.setText(f"❌ GPU Check Failed")
+            self.gpu_status_label.setStyleSheet("""
+                color: #e74c3c; 
+                font-size: 11px; 
+                padding: 6px; 
+                background-color: #ffffff; 
+                border-radius: 4px;
+            """)
 
     def connect_signals(self):
         """Connect training thread signals."""
