@@ -15,6 +15,8 @@ def main():
         except ImportError:
             print("Project Manager nicht verfügbar - verwende klassische Version")
             use_project_system = False
+        finally:
+            pass  # Placeholder to fix indentation error
         
         # MainMenu importieren (funktioniert mit beiden Versionen)
         from gui.main_menu import MainMenu

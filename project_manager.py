@@ -1595,45 +1595,40 @@ class ProjectManager:
         """Empfiehlt Modell-Typ basierend auf Annotation-Typ."""
         annotation_type = self.detect_annotation_type()
         labeled_dir = self.get_labeled_dir()
-            labeled_dir = self.get_labeled_dir()
-            if not labeled_dir.exists():
-                return "detection"  # Default wenn keine Daten vorhanden
-                
-            # Sammle alle Label-Dateien
-            label_files = list(labeled_dir.glob("*.txt"))
-            if not label_files:
-                return "detection"  # Default wenn keine Labels vorhanden
             
-            # Analysiere Format der ersten paar Label-Dateien
-            bbox_count = 0
-            polygon_count = 0
-            
-            for label_file in label_files[:10]:  # Prüfe nur erste 10 Dateien
-                try:
-                    with open(label_file, 'r', encoding='utf-8') as f:
-                        content = f.read().strip()
-                        if not content:
+        # Sammle alle Label-Dateien
+        label_files = list(labeled_dir.glob("*.txt"))
+        if not label_files:
+            return "detection"  # Default wenn keine Labels vorhanden
+        
+        # Analysiere Format der ersten paar Label-Dateien
+        bbox_count = 0
+        polygon_count = 0
+        
+        for label_file in label_files[:10]:  # Prüfe nur erste 10 Dateien
+            try:
+                with open(label_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        continue
+                        
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if not line:
                             continue
                             
-                        for line in content.split('\n'):
-                            line = line.strip()
-                            if not line:
-                                continue
-                                
-                            parts = line.split()
-                            if len(parts) == 5:
-                                bbox_count += 1
-                            elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
-                                polygon_count += 1
-                except Exception:
-                    continue
-            
-            # Entscheide basierend auf gefundenen Formaten
-            if polygon_count > bbox_count:
-            labeled_dir = self.get_labeled_dir()
-            if not labeled_dir.exists():
-                return "detection"
-                
+                        parts = line.split()
+                        if len(parts) == 5:
+                            bbox_count += 1
+                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                            polygon_count += 1
+            except Exception:
+                continue
+            finally:
+                if bbox_count > 0 and polygon_count > 0:
+                    break  # Früh beenden wenn beide Typen gefunden
+                elif polygon_count > 0:
+                    break  # Früh beenden wenn Polygon gefunden
     
     def get_default_model_path(self, model_type: str = None) -> str:
         """Gibt Standard-Modell-Pfad basierend auf Annotation-Typ zurück."""
