@@ -884,18 +884,18 @@ class TrainSettingsWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"Dataset YAML file not found: {yaml_path}")
             return False
         
-        # CRITICAL: Check dataset format compatibility with selected model type
+        # COMPREHENSIVE: Check dataset format and consistency
         model_type = self.model_type_input.currentText().lower()
         
         # Skip validation for continual training (uses existing model)
         if model_type == "nachtraining":
             return True
         
-        dataset_format = self.detect_dataset_format(yaml_path)
+        dataset_format, consistency_info = self.detect_dataset_format_comprehensive(yaml_path)
         
-        # SEGMENTATION TRAINING requires POLYGON annotations
+        # SEGMENTATION TRAINING validation
         if model_type == "segmentation":
-            if dataset_format == "bbox_only":
+            if dataset_format in ["bbox_only", "empty"]:
                 QMessageBox.critical(
                     self, "❌ Dataset Format Error",
                     f"<b>Segmentation Training benötigt Polygon-Annotationen!</b><br><br>"
@@ -909,21 +909,39 @@ class TrainSettingsWindow(QMainWindow):
                     f"• Polygon: <code>class_id x1 y1 x2 y2 x3 y3 ...</code>"
                 )
                 return False
-            elif dataset_format == "polygon":
-                QMessageBox.information(self, "✅ Format Perfect", 
-                    "<b>Polygon-Dataset erkannt!</b><br><br>"
-                    "Ihr Dataset ist perfekt für Segmentation-Training formatiert.")
-            elif dataset_format == "mixed":
+            elif dataset_format == "mixed_inconsistent":
+                reply = QMessageBox.critical(
+                    self, "❌ Inkonsistentes Mixed Dataset",
+                    f"<b>KRITISCHES PROBLEM:</b> Ihr Dataset ist inkonsistent!<br><br>"
+                    f"<b>Details:</b><br>"
+                    f"{consistency_info}<br><br>"
+                    f"<b>Warum scheitert Segmentation:</b><br>"
+                    f"• YOLO löscht automatisch ALLE Polygone wenn Anzahl nicht übereinstimmt<br>"
+                    f"• Segmentation-Training hat dann keine Polygone mehr<br>"
+                    f"• RuntimeError: 'Expected size 1 but got size 0'<br><br>"
+                    f"<b>Lösungen:</b><br>"
+                    f"1. <b>Wechseln Sie zu 'Detection'</b> (nutzt nur Bounding Boxes)<br>"
+                    f"2. Bereinigen Sie das Dataset (gleiche Anzahl Boxes und Polygone)<br>"
+                    f"3. Erstellen Sie ein reines Polygon-Dataset",
+                    QMessageBox.StandardButton.Ok
+                )
+                return False
+            elif dataset_format == "mixed_consistent":
                 reply = QMessageBox.question(
-                    self, "⚠️ Mixed Dataset Format",
-                    f"<b>Gemischtes Dataset erkannt:</b><br>"
-                    f"Enthält sowohl Bounding Boxes als auch Polygone.<br><br>"
-                    f"<b>Segmentation-Training wird nur die Polygon-Annotationen verwenden.</b><br><br>"
+                    self, "✅ Konsistentes Mixed Dataset",
+                    f"<b>Mixed Dataset erkannt:</b><br>"
+                    f"{consistency_info}<br><br>"
+                    f"<b>Segmentation-Training wird nur die Polygon-Daten verwenden.</b><br>"
+                    f"Bounding Boxes werden ignoriert.<br><br>"
                     f"Trotzdem fortfahren?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply == QMessageBox.StandardButton.No:
                     return False
+            elif dataset_format == "polygon":
+                QMessageBox.information(self, "✅ Format Perfect", 
+                    "<b>Polygon-Dataset erkannt!</b><br><br>"
+                    "Ihr Dataset ist perfekt für Segmentation-Training formatiert.")
         
         # DETECTION TRAINING works with both formats
         elif model_type == "detection":
@@ -940,93 +958,123 @@ class TrainSettingsWindow(QMainWindow):
         
         return True
     
-    def detect_dataset_format(self, yaml_path):
-        """Detect if dataset contains bounding boxes, polygons, or mixed format."""
+    def detect_dataset_format_comprehensive(self, yaml_path):
+        """Comprehensive dataset format detection with consistency checking."""
         try:
             import yaml
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
             
-            # Find train labels directory
+            # Find both train and val labels directories
             train_path = data.get('train', '')
+            val_path = data.get('val', '')
+            
             if not train_path:
-                return "unknown"
+                return "unknown", "No train path found in YAML"
             
             # Convert train_path to absolute path
             yaml_dir = Path(yaml_path).parent
-            if not Path(train_path).is_absolute():
-                # Look for train.txt or train directory
-                if train_path.endswith('.txt'):
-                    train_file = yaml_dir / train_path
-                    if train_file.exists():
-                        # Read first image path from train.txt
-                        with open(train_file, 'r') as f:
-                            first_image = f.readline().strip()
-                        if first_image:
-                            # Convert image path to labels path
-                            img_path = Path(first_image)
-                            if not img_path.is_absolute():
-                                img_path = yaml_dir / first_image
-                            # Get corresponding label file
-                            label_path = img_path.parent.parent / "labels" / (img_path.stem + ".txt")
-                        else:
-                            return "unknown"
-                    else:
-                        return "unknown"
-                else:
-                    # Assume train is a directory
-                    train_labels_dir = yaml_dir / train_path / "labels"
-                    if not train_labels_dir.exists():
-                        return "unknown"
-                    label_files = list(train_labels_dir.glob("*.txt"))[:10]
-                    if not label_files:
-                        return "unknown"
-                    label_path = label_files[0]
+            
+            # Find labels directory from train path
+            train_labels_dir = None
+            if train_path.endswith('.txt'):
+                # train.txt file - read to find image paths
+                train_file = yaml_dir / train_path if not Path(train_path).is_absolute() else Path(train_path)
+                if train_file.exists():
+                    with open(train_file, 'r') as f:
+                        first_image = f.readline().strip()
+                    if first_image:
+                        img_path = yaml_dir / first_image if not Path(first_image).is_absolute() else Path(first_image)
+                        train_labels_dir = img_path.parent.parent / "labels"
             else:
-                return "unknown"
+                # Direct train directory
+                train_dir = yaml_dir / train_path if not Path(train_path).is_absolute() else Path(train_path)
+                train_labels_dir = train_dir / "labels"
             
-            # Analyze the first label file
-            if not label_path.exists():
-                return "unknown"
+            if not train_labels_dir or not train_labels_dir.exists():
+                return "unknown", "Labels directory not found"
             
-            has_bbox = False
-            has_polygon = False
+            # Get all label files for comprehensive analysis
+            label_files = list(train_labels_dir.glob("*.txt"))
+            if not label_files:
+                return "empty", "No label files found"
             
-            try:
-                with open(label_path, 'r') as f:
-                    for line_num, line in enumerate(f):
-                        if line_num >= 20:  # Check only first 20 lines
-                            break
+            # Analyze multiple files for consistency
+            total_bbox_lines = 0
+            total_polygon_lines = 0
+            files_with_mixed = 0
+            files_analyzed = 0
+            
+            for label_file in label_files[:20]:  # Analyze first 20 files
+                if not label_file.exists():
+                    continue
+                
+                try:
+                    with open(label_file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                    if not content:
+                        continue
+                    
+                    files_analyzed += 1
+                    file_bbox_count = 0
+                    file_polygon_count = 0
+                    
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if not line:
+                            continue
                         
-                        parts = line.strip().split()
+                        parts = line.split()
                         if len(parts) < 5:
                             continue
                         
-                        if len(parts) == 5:  # class x_center y_center width height = bounding box
-                            has_bbox = True
-                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:  # class x1 y1 x2 y2 x3 y3... = polygon
-                            has_polygon = True
-                        
-                        # Early exit optimization
-                        if has_bbox and has_polygon:
-                            return "mixed"
+                        if len(parts) == 5:  # Bounding box format
+                            file_bbox_count += 1
+                            total_bbox_lines += 1
+                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:  # Polygon format
+                            file_polygon_count += 1
+                            total_polygon_lines += 1
+                    
+                    # Track files with mixed annotations
+                    if file_bbox_count > 0 and file_polygon_count > 0:
+                        files_with_mixed += 1
                 
-                if has_polygon and not has_bbox:
-                    return "polygon"
-                elif has_bbox and not has_polygon:
-                    return "bbox_only"
-                elif has_bbox and has_polygon:
-                    return "mixed"
+                except Exception as e:
+                    logger.warning(f"Error analyzing {label_file}: {e}")
+                    continue
+            
+            if files_analyzed == 0:
+                return "unknown", "Could not analyze any label files"
+            
+            # Determine format and consistency
+            has_bbox = total_bbox_lines > 0
+            has_polygon = total_polygon_lines > 0
+            
+            consistency_info = (
+                f"Analyzed {files_analyzed} files:<br>"
+                f"• Total Bounding Boxes: {total_bbox_lines}<br>"
+                f"• Total Polygons: {total_polygon_lines}<br>"
+                f"• Files with mixed annotations: {files_with_mixed}"
+            )
+            
+            if has_bbox and has_polygon:
+                # Check for consistency in mixed dataset
+                if files_with_mixed > 0:
+                    # Some files have both types - this causes the YOLO warning
+                    return "mixed_inconsistent", consistency_info + "<br><br><b>PROBLEM:</b> Einige Dateien haben sowohl Boxes als auch Polygone"
                 else:
-                    return "unknown"
-            
-            except Exception as e:
-                logger.warning(f"Error reading label file {label_path}: {e}")
-                return "unknown"
-            
+                    # Clean mixed dataset - some files have boxes, others have polygons
+                    return "mixed_consistent", consistency_info
+            elif has_polygon and not has_bbox:
+                return "polygon", consistency_info
+            elif has_bbox and not has_polygon:
+                return "bbox_only", consistency_info
+            else:
+                return "empty", consistency_info
+                
         except Exception as e:
             logger.warning(f"Could not detect dataset format: {e}")
-            return "unknown"
+            return "unknown", f"Error: {str(e)}"
 
     def update_progress(self, progress, message):
         """Update training progress."""
