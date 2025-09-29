@@ -57,10 +57,11 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
         device, batch_scale = get_device_settings()
         workers = get_optimal_workers()
         
-        # Adjust batch size based on GPU memory
-        actual_batch = int(batch * batch_scale * 16) if batch < 1.0 else int(batch)
-        if actual_batch <= 0:
-            actual_batch = 1
+        # Calculate actual batch size for detection
+        if batch < 1.0:
+            actual_batch = max(1, int(batch * batch_scale * 16))
+        else:
+            actual_batch = int(batch)
 
         logger.info(f"Starting Detection Training")
         logger.info(f"Using device: {device}")
@@ -142,6 +143,9 @@ def start_detection_training(data_path, epochs, imgsz, batch, lr0, resume, multi
         if multi_scale:
             train_args['rect'] = False
             train_args['cache'] = False
+        else:
+            train_args['rect'] = True
+            train_args['cache'] = 'disk'
 
         # Start detection training
         if log_callback:
@@ -182,11 +186,12 @@ def start_segmentation_training(data_path, epochs, imgsz, batch, lr0, resume, mu
         device, batch_scale = get_device_settings()
         workers = get_optimal_workers()
         
-        # Segmentation typically needs more memory, so be more conservative
+        # Segmentation needs more memory, so be more conservative
         segmentation_batch_scale = batch_scale * 0.6  # Reduce by 40% for segmentation
-        actual_batch = int(batch * segmentation_batch_scale * 12) if batch < 1.0 else int(batch)
-        if actual_batch <= 0:
-            actual_batch = 1
+        if batch < 1.0:
+            actual_batch = max(1, int(batch * segmentation_batch_scale * 12))
+        else:
+            actual_batch = int(batch)
 
         logger.info(f"Starting Segmentation Training")
         logger.info(f"Using device: {device}")

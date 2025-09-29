@@ -1594,13 +1594,46 @@ class ProjectManager:
     def get_recommended_model_type(self) -> str:
         """Empfiehlt Modell-Typ basierend auf Annotation-Typ."""
         annotation_type = self.detect_annotation_type()
-
-        if annotation_type in ["polygon", "mixed"]:
-            return "segmentation"
-        elif annotation_type == "bbox":
-            return "detection"
-        else:
-            return "detection"  # Default fallback
+            # Prüfe ob Annotationen vorhanden sind
+            labeled_dir = self.get_labeled_dir()
+            if not labeled_dir.exists():
+                return "detection"  # Default wenn keine Daten vorhanden
+                
+            # Sammle alle Label-Dateien
+            label_files = list(labeled_dir.glob("*.txt"))
+            if not label_files:
+                return "detection"  # Default wenn keine Labels vorhanden
+            
+            # Analysiere Format der ersten paar Label-Dateien
+            bbox_count = 0
+            polygon_count = 0
+            
+            for label_file in label_files[:10]:  # Prüfe nur erste 10 Dateien
+                try:
+                    with open(label_file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if not content:
+                            continue
+                            
+                        for line in content.split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                                
+                            parts = line.split()
+                            if len(parts) == 5:
+                                bbox_count += 1
+                            elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                                polygon_count += 1
+                except Exception:
+                    continue
+            
+            # Entscheide basierend auf gefundenen Formaten
+            if polygon_count > bbox_count:
+                return "segmentation"
+            else:
+                return "detection"
+                
     
     def get_default_model_path(self, model_type: str = None) -> str:
         """Gibt Standard-Modell-Pfad basierend auf Annotation-Typ zurück."""
@@ -1882,11 +1915,11 @@ class ProjectManager:
             if not image_files:
                 return False, "Keine Bilder im Raw-Images Verzeichnis gefunden. Bitte zuerst Bilder aufnehmen."
             return True, f"{len(image_files)} Bilder gefunden."
-        except Exception as e:
+            logger.warning(f"Error detecting annotation type: {e}")
             return False, f"Fehler beim Prüfen der rohen Bilder: {str(e)}"
     
     def _validate_labeled_data(self) -> Tuple[bool, str]:
-        """Validiert ob gelabelte Daten vorhanden sind"""
+        """Detect annotation type from existing labels (legacy method)."""
         try:
             labeled_dir = self.get_labeled_dir()
             image_files = list(labeled_dir.glob("*.jpg")) + list(labeled_dir.glob("*.png"))

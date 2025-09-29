@@ -931,42 +931,51 @@ class MainMenu(QMainWindow):
     def open_training(self):
         """Öffnet Training-Window mit Projekt-Kontext"""
         if 'training' not in self.windows:
-            from gui.training.settings_window import TrainSettingsWindow
             try:
+                from gui.training.settings_window import TrainSettingsWindow
                 app = TrainSettingsWindow(project_manager=self.project_manager)
             except Exception as e:
-                logger.error(f"Error creating training window: {e}")
+                import traceback
+                error_details = traceback.format_exc()
+                logger.error(f"Error creating training window: {e}\n{error_details}")
                 QMessageBox.critical(
                     self, "Error", 
-                    f"Failed to open training window:\n{str(e)}\n\n"
-                    "Please check the log for more details."
+                    f"Failed to open training window:\n{str(e)[:200]}...\n\n"
+                    "Please check the console for detailed error information."
                 )
                 return
             
             # Automatische Pfad-Setzung
             # Store training outputs inside the project's "05_models" directory
-            app.project_input.setText(str(self.project_manager.get_models_dir()))
-            app.name_input.setText(self.project_manager.get_next_experiment_name())
-            app.data_input.setText(str(self.project_manager.get_yaml_file()))
+            try:
+                app.project_input.setText(str(self.project_manager.get_models_dir()))
+                app.name_input.setText(self.project_manager.get_next_experiment_name())
+                app.data_input.setText(str(self.project_manager.get_yaml_file()))
+            except Exception as e:
+                logger.warning(f"Could not auto-populate training paths: {e}")
             
             # Gespeicherte Settings laden
-            saved_settings = self.project_manager.get_training_settings()
-            if saved_settings:
-                for key, value in saved_settings.items():
-                    if hasattr(app, f"{key}_input"):
-                        widget = getattr(app, f"{key}_input")
-                        if hasattr(widget, 'setValue'):
-                            widget.setValue(value)
-                        elif hasattr(widget, 'setText'):
-                            widget.setText(str(value))
-                        elif hasattr(widget, 'setChecked'):
-                            widget.setChecked(bool(value))
+            try:
+                saved_settings = self.project_manager.get_training_settings()
+                if saved_settings:
+                    for key, value in saved_settings.items():
+                        widget_name = f"{key}_input"
+                        if hasattr(app, widget_name):
+                            widget = getattr(app, widget_name)
+                            if hasattr(widget, 'setValue'):
+                                widget.setValue(value)
+                            elif hasattr(widget, 'setText'):
+                                widget.setText(str(value))
+                            elif hasattr(widget, 'setChecked'):
+                                widget.setChecked(bool(value))
+            except Exception as e:
+                logger.warning(f"Could not load saved training settings: {e}")
             
             # Letztes Trainingsergebnis laden
             try:
                 app.load_last_training_results()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not load last training results: {e}")
 
             self.windows['training'] = app
         
