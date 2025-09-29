@@ -299,13 +299,13 @@ class ImageAugmentationApp(QMainWindow):
                 format_text += f" (✅ {bbox_count} Boxes)"
             
             current_text = self.count_info.text()
-            lines = current_text.split('\n')
-            if len(lines) >= 2:
-                new_text = f"{lines[0]}\n{lines[1]}\n{format_text}"
-            else:
-                new_text = f"{current_text}\n{format_text}"
-            
-            self.count_info.setText(new_text)
+        lines = current_text.split('\n')
+        if len(lines) >= 2:
+            new_text = f"{lines[0]}\n{lines[1]}\n{format_text}"
+        else:
+            new_text = f"{current_text}\n{format_text}"
+        
+        self.count_info.setText(new_text)
             
         except Exception as e:
             logger.error(f"Error analyzing dataset format: {e}")
@@ -344,8 +344,11 @@ class ImageAugmentationApp(QMainWindow):
                 f"Aktuelle Anzahl Bilder: {original_count:,}\n"
                 f"Erwartete Anzahl Bilder: {total_count:,}"
             )
-                lines = current_text.split('\n')
-                format_line = next((line for line in lines if "Dataset-Format:" in line), "")
+            
+        # Get current text to preserve format line
+        current_text = self.count_info.text()
+        lines = current_text.split('\n')
+        format_line = next((line for line in lines if "Dataset-Format:" in line), "")
             
             if format_line:
                 text += f"\n{format_line}"
