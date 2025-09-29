@@ -134,7 +134,7 @@ def create_dashboard_tabs(window):
     log_tab = QWidget()
     log_tab_layout = QVBoxLayout(log_tab)
     
-    # Log text area - QTextEdit for copy/paste functionality
+    # Log text area - QTextEdit for full copy/paste functionality
     log_text = QTextEdit()
     log_text.setReadOnly(True)
     log_text.setPlainText("Training log will appear here...")
@@ -149,6 +149,20 @@ def create_dashboard_tabs(window):
             font-size: 12px;
         }
     """)
+    
+    # Add instructions for copy/paste
+    instructions = QLabel("💡 You can select and copy text from this log (Ctrl+A to select all, Ctrl+C to copy)")
+    instructions.setStyleSheet("""
+        QLabel {
+            color: #666;
+            font-size: 11px;
+            padding: 5px;
+            background-color: #e8f4f8;
+            border-radius: 3px;
+            border: 1px solid #bee5eb;
+        }
+    """)
+    log_tab_layout.addWidget(instructions)
     
     log_tab_layout.addWidget(log_text)
     

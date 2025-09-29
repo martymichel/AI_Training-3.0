@@ -882,6 +882,45 @@ class TrainSettingsWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"Dataset YAML file not found: {yaml_path}")
             return False
         
+        # Check dataset format compatibility with selected model type
+        model_type = self.model_type_input.currentText().lower()
+        dataset_format = self.detect_dataset_format(yaml_path)
+        
+        # Validate dataset format for segmentation
+        if model_type == "segmentation":
+            if dataset_format == "bbox_only":
+                reply = QMessageBox.critical(
+                    self, "Dataset Format Error",
+                    f"❌ Segmentation training selected but dataset contains only bounding boxes!\n\n"
+                    f"Segmentation models require polygon annotations, not just bounding boxes.\n\n"
+                    f"Solutions:\n"
+                    f"1. Switch to 'Detection' mode (recommended for bounding box data)\n"
+                    f"2. Re-annotate your data with polygon annotations\n\n"
+                    f"Would you like me to automatically switch to Detection mode?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.model_type_input.setCurrentText("Detection")
+                    self.update_model_options()
+                    QMessageBox.information(self, "Mode Switched", "✅ Switched to Detection mode. Training will now work correctly.")
+                    return True  # Continue with detection mode
+                else:
+                    return False  # User wants to fix dataset first
+            elif dataset_format == "polygon":
+                QMessageBox.information(self, "Format OK", "✅ Polygon dataset detected - perfect for segmentation training!")
+        
+        elif model_type == "detection" and dataset_format == "polygon":
+            reply = QMessageBox.question(
+                self, "Dataset Format Notice",
+                f"ℹ️ Detection training selected but dataset contains polygon annotations.\n\n"
+                f"Detection models can use polygon data but will only use bounding boxes.\n"
+                f"Consider using 'Segmentation' mode for better polygon utilization.\n\n"
+                f"Continue with Detection mode anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.No:
+                return False
+        
         model_type = self.model_type_input.currentText().lower()
         is_valid, message = validate_yaml_for_model_type(yaml_path, model_type)
         if not is_valid:
@@ -897,6 +936,50 @@ class TrainSettingsWindow(QMainWindow):
                 return False
         
         return True
+    
+    def detect_dataset_format(self, yaml_path):
+        """Detect if dataset contains bounding boxes or polygons."""
+        try:
+            import yaml
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f)
+            
+            # Get path to train labels
+            train_path = data.get('train', '')
+            if train_path:
+                # Find labels directory
+                train_labels_dir = Path(yaml_path).parent / "train" / "labels"
+                if train_labels_dir.exists():
+                    # Check first few label files
+                    label_files = list(train_labels_dir.glob("*.txt"))[:5]
+                    
+                    has_bbox = False
+                    has_polygon = False
+                    
+                    for label_file in label_files:
+                        try:
+                            with open(label_file, 'r') as f:
+                                for line in f:
+                                    parts = line.strip().split()
+                                    if len(parts) == 5:  # class x y w h = bounding box
+                                        has_bbox = True
+                                    elif len(parts) > 5 and (len(parts) - 1) % 2 == 0:  # polygon
+                                        has_polygon = True
+                                    
+                                    if has_bbox and has_polygon:
+                                        return "mixed"
+                        except:
+                            continue
+                    
+                    if has_polygon:
+                        return "polygon"
+                    elif has_bbox:
+                        return "bbox_only"
+            
+            return "unknown"
+        except Exception as e:
+            logger.warning(f"Could not detect dataset format: {e}")
+            return "unknown"
 
     def update_progress(self, progress, message):
         """Update training progress."""
