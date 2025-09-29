@@ -159,7 +159,7 @@ class OptimizeThresholdsWorker(QThread):
 
         for conf in conf_range:
             for iou in iou_range:
-                correct_annotations = 0
+                good_count = 0
                 total_images = len(self.image_list)
 
                 conf_threshold = np.clip(conf / 100.0, 0.01, 0.99)
@@ -180,17 +180,26 @@ class OptimizeThresholdsWorker(QThread):
                     )
                     
                     for img_path, result in zip(batch, results):
-                        # Parse ground truth annotations
-                        gt_annotations = self.parse_ground_truth(img_path)
+                        gt_counter = Counter()
+                        annot_file = os.path.splitext(img_path)[0] + ".txt"
+                        if os.path.exists(annot_file):
+                            with open(annot_file, 'r') as f:
+                                for line in f:
+                                    parts = line.strip().split()
+                                    if len(parts) >= 5:
+                                        cls = int(float(parts[0]))
+                                        gt_counter[cls] += 1
                         
-                        # Parse model predictions
-                        pred_annotations = self.parse_predictions(result, model)
+                        pred_counter = Counter()
+                        if hasattr(result, "boxes") and result.boxes is not None:
+                            for box in result.boxes:
+                                cls_pred = int(box.cls[0].cpu().numpy())
+                                pred_counter[cls_pred] += 1
                         
-                        # Compare annotations
-                        if self.compare_annotations(gt_annotations, pred_annotations):
-                            correct_annotations += 1
+                        if gt_counter == pred_counter:
+                            good_count += 1
                 
-                accuracy = (correct_annotations / total_images) * 100
+                accuracy = (good_count / total_images) * 100
 
                 search_history.append((
                     float(conf_threshold),
@@ -201,7 +210,7 @@ class OptimizeThresholdsWorker(QThread):
                 
                 self.logger.info(f"Results for conf={conf_threshold:.3f}, iou={iou_threshold:.3f}:")
                 self.logger.info(f"- Accuracy: {accuracy:.2f}%")
-                self.logger.info(f"- Correctly annotated: {correct_annotations}/{total_images}")
+                self.logger.info(f"- Correctly annotated: {good_count}/{total_images}")
                 if accuracy > best_result['accuracy']:
                     self.logger.info(f"=> New best result! Previous best: {best_result['accuracy']:.2f}%")
                 self.logger.info("-" * 30)
@@ -519,3 +528,152 @@ class AnnotationWorker(QThread):
 
         self.summary_signal.emit(summary, correct_percentage, self.misannotated_dir)
         self.finished.emit()
+    
+    def detect_model_type(self, model):
+        """Detect if model is for segmentation or detection."""
+        try:
+            # Test on a dummy image to see what the model returns
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            results = model(dummy_img, verbose=False)
+            
+            # Check if model has segmentation capability
+            if hasattr(results[0], 'masks') and results[0].masks is not None:
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def parse_ground_truth_for_display(self, img_path, img_height, img_width):
+        """Parse ground truth annotations for display."""
+        annotations = []
+        annot_file = os.path.splitext(img_path)[0] + ".txt"
+        
+        if os.path.exists(annot_file):
+            with open(annot_file, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        cls = int(float(parts[0]))
+                        
+                        if len(parts) == 5:
+                            # Bounding box format
+                            x_center = float(parts[1]) * img_width
+                            y_center = float(parts[2]) * img_height
+                            bw = float(parts[3]) * img_width
+                            bh = float(parts[4]) * img_height
+                            x1 = int(x_center - bw/2)
+                            y1 = int(y_center - bh/2)
+                            x2 = int(x_center + bw/2)
+                            y2 = int(y_center + bh/2)
+                            
+                            annotations.append({
+                                'class_id': cls,
+                                'type': 'bbox',
+                                'coords': [x1, y1, x2, y2]
+                            })
+                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                            # Polygon format
+                            coords = []
+                            for i in range(1, len(parts), 2):
+                                x = float(parts[i]) * img_width
+                                y = float(parts[i+1]) * img_height
+                                coords.extend([int(x), int(y)])
+                            
+                            annotations.append({
+                                'class_id': cls,
+                                'type': 'polygon',
+                                'coords': coords
+                            })
+        
+        return annotations
+    
+    def get_predictions_for_display(self, results, valid_images, img_path, is_segmentation):
+        """Get predictions for display."""
+        annotations = []
+        
+        if results is not None and img_path in valid_images:
+            idx = valid_images.index(img_path)
+            r = results[idx]
+            
+            if is_segmentation and hasattr(r, 'masks') and r.masks is not None:
+                # Segmentation predictions
+                for i, mask in enumerate(r.masks):
+                    cls_pred = int(mask.cls[0].cpu().numpy())
+                    
+                    # Convert mask to polygon
+                    mask_array = mask.data[0].cpu().numpy()
+                    contours, _ = cv2.findContours(
+                        (mask_array * 255).astype(np.uint8),
+                        cv2.RETR_EXTERNAL,
+                        cv2.CHAIN_APPROX_SIMPLE
+                    )
+                    
+                    for contour in contours:
+                        if len(contour) >= 3:
+                            coords = contour.reshape(-1).tolist()
+                            annotations.append({
+                                'class_id': cls_pred,
+                                'type': 'polygon',
+                                'coords': coords
+                            })
+            
+            elif hasattr(r, "boxes") and r.boxes is not None:
+                # Detection predictions
+                for box in r.boxes:
+                    coords = box.xyxy[0].cpu().numpy().astype(int)
+                    cls_pred = int(box.cls[0].cpu().numpy())
+                    annotations.append({
+                        'class_id': cls_pred,
+                        'type': 'bbox',
+                        'coords': coords.tolist()
+                    })
+        
+        return annotations
+    
+    def draw_ground_truth(self, image, annotations, is_segmentation):
+        """Draw ground truth annotations in green."""
+        for ann in annotations:
+            cls = ann['class_id']
+            coords = ann['coords']
+            
+            if ann['type'] == 'bbox':
+                # Draw bounding box
+                x1, y1, x2, y2 = coords
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(image, f"GT:{cls}", (x1, max(y1-5, 0)),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            elif ann['type'] == 'polygon':
+                # Draw polygon
+                points = np.array(coords).reshape(-1, 2).astype(np.int32)
+                cv2.polylines(image, [points], True, (0, 255, 0), 2)
+                
+                # Add label at polygon centroid
+                if len(points) > 0:
+                    centroid = np.mean(points, axis=0).astype(int)
+                    cv2.putText(image, f"GT:{cls}", (centroid[0], centroid[1]),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    
+    def draw_predictions(self, image, annotations, is_segmentation):
+        """Draw predicted annotations in blue."""
+        for ann in annotations:
+            cls = ann['class_id']
+            coords = ann['coords']
+            
+            if ann['type'] == 'bbox':
+                # Draw bounding box
+                x1, y1, x2, y2 = coords
+                cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.putText(image, f"P:{cls}", (x1, max(y1-25, 0)),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            
+            elif ann['type'] == 'polygon':
+                # Draw polygon
+                points = np.array(coords).reshape(-1, 2).astype(np.int32)
+                cv2.polylines(image, [points], True, (255, 0, 0), 2)
+                
+                # Add label at polygon centroid
+                if len(points) > 0:
+                    centroid = np.mean(points, axis=0).astype(int)
+                    cv2.putText(image, f"P:{cls}", (centroid[0]-20, centroid[1]),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
