@@ -22,6 +22,8 @@ from gui.training.training_utils import check_and_load_results_csv
 from gui.training.parameter_info import ParameterInfoButton
 from utils.validation import validate_yaml_for_model_type, check_gpu
 from project_manager import WorkflowStep
+from pathlib import Path
+import yaml
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -882,101 +884,146 @@ class TrainSettingsWindow(QMainWindow):
             QMessageBox.warning(self, "Error", f"Dataset YAML file not found: {yaml_path}")
             return False
         
-        # Check dataset format compatibility with selected model type
+        # CRITICAL: Check dataset format compatibility with selected model type
         model_type = self.model_type_input.currentText().lower()
+        
+        # Skip validation for continual training (uses existing model)
+        if model_type == "nachtraining":
+            return True
+        
         dataset_format = self.detect_dataset_format(yaml_path)
         
-        # Validate dataset format for segmentation
+        # SEGMENTATION TRAINING requires POLYGON annotations
         if model_type == "segmentation":
             if dataset_format == "bbox_only":
-                reply = QMessageBox.critical(
-                    self, "Dataset Format Error",
-                    f"❌ Segmentation training selected but dataset contains only bounding boxes!\n\n"
-                    f"Segmentation models require polygon annotations, not just bounding boxes.\n\n"
-                    f"Solutions:\n"
-                    f"1. Switch to 'Detection' mode (recommended for bounding box data)\n"
-                    f"2. Re-annotate your data with polygon annotations\n\n"
-                    f"Would you like me to automatically switch to Detection mode?",
+                QMessageBox.critical(
+                    self, "❌ Dataset Format Error",
+                    f"<b>Segmentation Training benötigt Polygon-Annotationen!</b><br><br>"
+                    f"<b>Problem:</b> Ihr Dataset enthält nur Bounding Boxes (5 Werte pro Zeile)<br>"
+                    f"<b>Segmentation braucht:</b> Polygon-Koordinaten (7+ Werte pro Zeile)<br><br>"
+                    f"<b>Lösungen:</b><br>"
+                    f"1. <b>Wechseln Sie zu 'Detection'</b> (funktioniert mit Bounding Boxes)<br>"
+                    f"2. Erstellen Sie neue Polygon-Annotationen<br><br>"
+                    f"<b>Format-Details:</b><br>"
+                    f"• Bounding Box: <code>class_id x_center y_center width height</code><br>"
+                    f"• Polygon: <code>class_id x1 y1 x2 y2 x3 y3 ...</code>"
+                )
+                return False
+            elif dataset_format == "polygon":
+                QMessageBox.information(self, "✅ Format Perfect", 
+                    "<b>Polygon-Dataset erkannt!</b><br><br>"
+                    "Ihr Dataset ist perfekt für Segmentation-Training formatiert.")
+            elif dataset_format == "mixed":
+                reply = QMessageBox.question(
+                    self, "⚠️ Mixed Dataset Format",
+                    f"<b>Gemischtes Dataset erkannt:</b><br>"
+                    f"Enthält sowohl Bounding Boxes als auch Polygone.<br><br>"
+                    f"<b>Segmentation-Training wird nur die Polygon-Annotationen verwenden.</b><br><br>"
+                    f"Trotzdem fortfahren?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.model_type_input.setCurrentText("Detection")
-                    self.update_model_options()
-                    QMessageBox.information(self, "Mode Switched", "✅ Switched to Detection mode. Training will now work correctly.")
-                    return True  # Continue with detection mode
-                else:
-                    return False  # User wants to fix dataset first
-            elif dataset_format == "polygon":
-                QMessageBox.information(self, "Format OK", "✅ Polygon dataset detected - perfect for segmentation training!")
+                if reply == QMessageBox.StandardButton.No:
+                    return False
         
-        elif model_type == "detection" and dataset_format == "polygon":
-            reply = QMessageBox.question(
-                self, "Dataset Format Notice",
-                f"ℹ️ Detection training selected but dataset contains polygon annotations.\n\n"
-                f"Detection models can use polygon data but will only use bounding boxes.\n"
-                f"Consider using 'Segmentation' mode for better polygon utilization.\n\n"
-                f"Continue with Detection mode anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.No:
-                return False
+        # DETECTION TRAINING works with both formats
+        elif model_type == "detection":
+            if dataset_format == "polygon":
+                QMessageBox.information(self, "ℹ️ Polygon → Bounding Box", 
+                    "<b>Polygon-Dataset für Detection-Training:</b><br><br>"
+                    "Detection-Training konvertiert Polygone automatisch zu Bounding Boxes.<br>"
+                    "Für beste Polygon-Nutzung wäre 'Segmentation' optimal.")
+            elif dataset_format == "bbox_only":
+                QMessageBox.information(self, "✅ Format Perfect", 
+                    "<b>Bounding Box Dataset erkannt!</b><br><br>"
+                    "Perfekt für Detection-Training formatiert.")
         
-        model_type = self.model_type_input.currentText().lower()
-        is_valid, message = validate_yaml_for_model_type(yaml_path, model_type)
-        if not is_valid:
-            QMessageBox.critical(self, "Dataset Error", message)
-            return False
-        elif "Warning:" in message:
-            reply = QMessageBox.question(
-                self, "Dataset Warning", 
-                f"{message}\n\nContinue anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.No:
-                return False
         
         return True
     
     def detect_dataset_format(self, yaml_path):
-        """Detect if dataset contains bounding boxes or polygons."""
+        """Detect if dataset contains bounding boxes, polygons, or mixed format."""
         try:
             import yaml
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
             
-            # Get path to train labels
+            # Find train labels directory
             train_path = data.get('train', '')
-            if train_path:
-                # Find labels directory
-                train_labels_dir = Path(yaml_path).parent / "train" / "labels"
-                if train_labels_dir.exists():
-                    # Check first few label files
-                    label_files = list(train_labels_dir.glob("*.txt"))[:5]
-                    
-                    has_bbox = False
-                    has_polygon = False
-                    
-                    for label_file in label_files:
-                        try:
-                            with open(label_file, 'r') as f:
-                                for line in f:
-                                    parts = line.strip().split()
-                                    if len(parts) == 5:  # class x y w h = bounding box
-                                        has_bbox = True
-                                    elif len(parts) > 5 and (len(parts) - 1) % 2 == 0:  # polygon
-                                        has_polygon = True
-                                    
-                                    if has_bbox and has_polygon:
-                                        return "mixed"
-                        except:
-                            continue
-                    
-                    if has_polygon:
-                        return "polygon"
-                    elif has_bbox:
-                        return "bbox_only"
+            if not train_path:
+                return "unknown"
             
-            return "unknown"
+            # Convert train_path to absolute path
+            yaml_dir = Path(yaml_path).parent
+            if not Path(train_path).is_absolute():
+                # Look for train.txt or train directory
+                if train_path.endswith('.txt'):
+                    train_file = yaml_dir / train_path
+                    if train_file.exists():
+                        # Read first image path from train.txt
+                        with open(train_file, 'r') as f:
+                            first_image = f.readline().strip()
+                        if first_image:
+                            # Convert image path to labels path
+                            img_path = Path(first_image)
+                            if not img_path.is_absolute():
+                                img_path = yaml_dir / first_image
+                            # Get corresponding label file
+                            label_path = img_path.parent.parent / "labels" / (img_path.stem + ".txt")
+                        else:
+                            return "unknown"
+                    else:
+                        return "unknown"
+                else:
+                    # Assume train is a directory
+                    train_labels_dir = yaml_dir / train_path / "labels"
+                    if not train_labels_dir.exists():
+                        return "unknown"
+                    label_files = list(train_labels_dir.glob("*.txt"))[:10]
+                    if not label_files:
+                        return "unknown"
+                    label_path = label_files[0]
+            else:
+                return "unknown"
+            
+            # Analyze the first label file
+            if not label_path.exists():
+                return "unknown"
+            
+            has_bbox = False
+            has_polygon = False
+            
+            try:
+                with open(label_path, 'r') as f:
+                    for line_num, line in enumerate(f):
+                        if line_num >= 20:  # Check only first 20 lines
+                            break
+                        
+                        parts = line.strip().split()
+                        if len(parts) < 5:
+                            continue
+                        
+                        if len(parts) == 5:  # class x_center y_center width height = bounding box
+                            has_bbox = True
+                        elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:  # class x1 y1 x2 y2 x3 y3... = polygon
+                            has_polygon = True
+                        
+                        # Early exit optimization
+                        if has_bbox and has_polygon:
+                            return "mixed"
+                
+                if has_polygon and not has_bbox:
+                    return "polygon"
+                elif has_bbox and not has_polygon:
+                    return "bbox_only"
+                elif has_bbox and has_polygon:
+                    return "mixed"
+                else:
+                    return "unknown"
+            
+            except Exception as e:
+                logger.warning(f"Error reading label file {label_path}: {e}")
+                return "unknown"
+            
         except Exception as e:
             logger.warning(f"Could not detect dataset format: {e}")
             return "unknown"
@@ -1000,7 +1047,7 @@ class TrainSettingsWindow(QMainWindow):
         current_text = self.log_text.toPlainText()
         self.log_text.setPlainText(current_text + message + "\n")
         
-        # Auto-scroll to bottom for QTextEdit
+        # Auto-scroll to bottom
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
