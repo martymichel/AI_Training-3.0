@@ -150,6 +150,9 @@ class TrainSettingsWindow(QWidget):
 
         # Initialize custom model path
         self.selected_model_path = None
+        
+        # Force update model options to ensure dropdown is populated
+        self.update_model_options()
 
         # Hintergrundprüfung auf results.csv
         self.check_timer = QTimer()
@@ -196,6 +199,7 @@ class TrainSettingsWindow(QWidget):
             self.custom_model_path.setText(f"Ausgewählt: {model_name}")
     def update_model_options(self):
         """Update available model options based on selected type."""
+        print(f"DEBUG: update_model_options called, current type: {self.model_type_input.currentText()}")
         model_type = self.model_type_input.currentText().lower()
 
         self.model_input.clear()
@@ -217,6 +221,7 @@ class TrainSettingsWindow(QWidget):
                 else:
                     self.custom_model_path.setText("Kein Modell ausgewählt - Bitte wählen Sie eine .pt Datei")
                     self.selected_model_path = None
+            print("DEBUG: Nachtraining mode - hiding dropdown")
             return
         else:
             # Show dropdown, hide browse button
@@ -238,7 +243,8 @@ class TrainSettingsWindow(QWidget):
                 "yolo8l-seg.pt",
                 "yolo8x-seg.pt"
             ]
-        elif model_type == "detection":
+            print(f"DEBUG: Adding segmentation models: {models}")
+        else:  # Default to detection for any other case including "detection"
             models = [
                 "yolo11n.pt",
                 "yolo11s.pt",
@@ -251,11 +257,10 @@ class TrainSettingsWindow(QWidget):
                 "yolo8l.pt",
                 "yolo8x.pt"
             ]
-        else:
-            # Fallback für unbekannte Typen
-            models = ["yolo11n.pt"]
+            print(f"DEBUG: Adding detection models: {models}")
 
         self.model_input.addItems(models)
+        print(f"DEBUG: Added {len(models)} models to dropdown")
 
         # Set default based on project manager if available
         if self.project_manager:
@@ -264,6 +269,7 @@ class TrainSettingsWindow(QWidget):
                 index = self.model_input.findText(default_model)
                 if index >= 0:
                     self.model_input.setCurrentIndex(index)
+                    print(f"DEBUG: Set default model to {default_model}")
             except:
                 pass  # Use first item as default
 

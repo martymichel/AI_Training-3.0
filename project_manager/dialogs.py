@@ -106,39 +106,42 @@ class NewProjectDialog(QDialog):
         self.setModal(True)
         self.setFixedSize(500, 400)
         
-        # Set professional styling
+        # Fixed professional styling - matching main dialog
         self.setStyleSheet("""
             QDialog {
-                background-color: #f8f9fa;
-                color: #212529;
+                background-color: #ffffff;
+                color: #2c3e50;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             QLabel {
-                color: #212529;
+                color: #2c3e50;
                 font-weight: 500;
                 padding: 4px;
+                background: transparent;
             }
             QLineEdit, QTextEdit {
                 background-color: white;
                 border: 2px solid #dee2e6;
                 border-radius: 6px;
                 padding: 8px;
-                color: #212529;
+                color: #2c3e50;
                 font-size: 14px;
             }
             QLineEdit:focus, QTextEdit:focus {
-                border-color: #007bff;
+                border-color: #3498db;
             }
             QPushButton {
-                background-color: #007bff;
+                background-color: #3498db;
                 color: white;
                 border: none;
                 border-radius: 6px;
                 padding: 12px 24px;
                 font-weight: 600;
                 font-size: 14px;
+                min-width: 120px;
             }
             QPushButton:hover {
-                background-color: #0056b3;
+                background-color: #2980b9;
             }
         """)
         
@@ -254,6 +257,63 @@ class ProjectManagerDialog(QDialog):
         self.setWindowTitle("AI Vision Tools - Project Manager")
         self.setModal(True)
         self.resize(900, 600)
+        
+        # Fixed professional styling - not OS dependent
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #ffffff;
+                color: #2c3e50;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QLabel {
+                color: #2c3e50;
+                font-weight: 500;
+                padding: 4px;
+                background: transparent;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 24px;
+                font-weight: 600;
+                font-size: 14px;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+            QFrame#projectCard {
+                background-color: #f8f9fa;
+                border: 2px solid #e9ecef;
+                border-radius: 8px;
+            }
+            QFrame#projectCard:hover {
+                border-color: #3498db;
+                background-color: #e3f2fd;
+            }
+            QScrollArea {
+                background-color: #ffffff;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+            }
+            QTextEdit, QLineEdit {
+                background-color: white;
+                border: 2px solid #dee2e6;
+                border-radius: 6px;
+                padding: 8px;
+                color: #2c3e50;
+                font-size: 14px;
+            }
+            QTextEdit:focus, QLineEdit:focus {
+                border-color: #3498db;
+            }
+        """)
         
         self.selected_project_path = None
         self.init_ui()
@@ -413,6 +473,7 @@ class ProjectManagerDialog(QDialog):
         # Look for projects in common locations
         search_paths = [
             Path.cwd(),
+            Path("C:/Users/Michel/AI_Vision_Projects"),  # User's specific legacy location
             Path("C:/Users/Michel/AI_Vision_Projects"),  # Your specific legacy location
             Path.home() / "AI_Projects",
             Path.home() / "Documents" / "AI_Projects",
