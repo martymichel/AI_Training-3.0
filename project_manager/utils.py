@@ -170,8 +170,10 @@ def get_legacy_projects() -> List[str]:
     # Common search locations
     search_paths = [
         Path.cwd(),
+        Path("C:/Users/Michel/AI_Vision_Projects"),  # Specific legacy location
         Path.home() / "AI_Projects",
         Path.home() / "Documents" / "AI_Projects",
+        Path.home() / "AI_Vision_Projects",  # Alternative legacy location
         Path.home() / "Desktop",
         # Add current directory parent (often where projects are)
         Path.cwd().parent
